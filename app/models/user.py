@@ -100,7 +100,9 @@ async def update_user(db, user_id, update_data):
             {"$set": update_data}
         )
         
-        if result.modified_count > 0:
+        # If the update was attempted and the user was found, return the user
+        # Even if modified_count is 0 (e.g., when setting email_verified=True when it's already True)
+        if result.matched_count > 0:
             updated_user = await get_user_by_id(db, user_id)
             if updated_user and "password" in updated_user:
                 updated_user.pop("password")

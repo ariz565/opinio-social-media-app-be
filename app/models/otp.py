@@ -11,15 +11,15 @@ async def generate_otp():
     """Generate a 6-digit OTP"""
     return ''.join(random.choices(string.digits, k=6))
 
-async def create_otp(db, user_id, email, otp_type=OTP_TYPE_EMAIL_VERIFICATION):
-    """Create OTP for user"""
+async def create_otp(db, email, otp_type=OTP_TYPE_EMAIL_VERIFICATION, user_id=None):
+    """Create OTP for email address"""
     otp_code = await generate_otp()
     
-    # OTP expires in 10 minutes
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    # OTP expires in 10 minutes for email verification, 15 minutes for password reset
+    minutes = 15 if otp_type == OTP_TYPE_PASSWORD_RESET else 10
+    expires_at = datetime.utcnow() + timedelta(minutes=minutes)
     
     otp_doc = {
-        "user_id": ObjectId(user_id) if isinstance(user_id, str) else user_id,
         "email": email.lower(),
         "otp_code": otp_code,
         "otp_type": otp_type,
@@ -28,11 +28,16 @@ async def create_otp(db, user_id, email, otp_type=OTP_TYPE_EMAIL_VERIFICATION):
         "expires_at": expires_at
     }
     
-    # Remove any existing OTPs for this user and type
-    await db.otps.delete_many({
-        "user_id": ObjectId(user_id) if isinstance(user_id, str) else user_id,
+    # Add user_id if provided
+    if user_id:
+        otp_doc["user_id"] = ObjectId(user_id) if isinstance(user_id, str) else user_id
+    
+    # Remove any existing OTPs for this email and type
+    query = {
+        "email": email.lower(),
         "otp_type": otp_type
-    })
+    }
+    await db.otps.delete_many(query)
     
     # Insert new OTP
     result = await db.otps.insert_one(otp_doc)

@@ -56,7 +56,7 @@ async def close_mongo_connection():
         logger.info("MongoDB connection closed")
 
 async def get_database():
-    """Get database instance"""
+    """Get database instance with connection retry"""
     if mongodb.database is None:
         # Try to connect if not already connected
         try:
@@ -65,8 +65,21 @@ async def get_database():
             logger.error(f"Failed to connect to database: {e}")
             raise Exception(f"Database not connected: {e}")
     
+    # Double check that database is still available
     if mongodb.database is None:
-        raise Exception("Database connection failed")
+        logger.error("Database connection is None after connection attempt")
+        raise Exception("Database connection failed - database is None")
+    
+    # Verify connection is still alive
+    try:
+        await mongodb.client.admin.command('ping')
+    except Exception as e:
+        logger.warning(f"Database ping failed, attempting reconnection: {e}")
+        try:
+            await connect_to_mongo()
+        except Exception as reconnect_error:
+            logger.error(f"Reconnection failed: {reconnect_error}")
+            raise Exception(f"Database reconnection failed: {reconnect_error}")
     
     return mongodb.database
 

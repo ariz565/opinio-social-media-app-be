@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 from jose import jwt, JWTError
+from datetime import datetime
 
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token, decode_token
 from app.models.user import (
@@ -98,7 +99,8 @@ async def register_user(db, user_data):
         
         # Generate and send verification OTP
         try:
-            otp_code = await create_otp(db, created_user["_id"], email, OTP_TYPE_EMAIL_VERIFICATION)
+            # Generate OTP for email verification
+            otp_code = await create_otp(db, email, OTP_TYPE_EMAIL_VERIFICATION, created_user["_id"])
             
             # Send verification email
             email_sent = await email_service.send_verification_email(
@@ -305,7 +307,7 @@ async def resend_verification_otp(db, email):
             )
         
         # Generate new OTP
-        otp_code = await create_otp(db, user["_id"], email, OTP_TYPE_EMAIL_VERIFICATION)
+        otp_code = await create_otp(db, email, OTP_TYPE_EMAIL_VERIFICATION, user["_id"])
         
         # Send verification email
         email_sent = await email_service.send_verification_email(
@@ -396,4 +398,122 @@ async def create_or_get_google_user(db, google_user_info):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to process Google user"
+        )
+
+
+async def request_password_reset(db, email):
+    """Request password reset for a user"""
+    try:
+        # Sanitize email input
+        email = email.strip().lower()
+        
+        # Validate email format
+        if not validate_email(email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid email format"
+            )
+        
+        # Check if user exists
+        user = await get_user_by_email(db, email)
+        if not user:
+            # For security, don't reveal if email exists or not
+            return {
+                "message": "If the email exists in our system, a password reset link has been sent",
+                "email_sent": True
+            }
+        
+        # Generate reset code (6-digit OTP)
+        from app.models.otp import create_otp, OTP_TYPE_PASSWORD_RESET
+        reset_code = await create_otp(db, email, OTP_TYPE_PASSWORD_RESET)
+        
+        # Send password reset email
+        reset_link = f"{settings['FRONTEND_URL']}/reset-password?email={email}&code={reset_code}"
+        
+        email_sent = await email_service.send_password_reset_email(
+            to_email=email,
+            full_name=user.get("full_name", "User"),
+            reset_code=reset_code,
+            reset_link=reset_link
+        )
+        
+        return {
+            "message": "Password reset instructions have been sent to your email",
+            "email_sent": email_sent
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log the actual error but don't expose it
+        print(f"Password reset request error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process password reset request"
+        )
+
+
+async def verify_password_reset(db, email, reset_code, new_password):
+    """Verify password reset code and update password"""
+    try:
+        # Sanitize inputs
+        email = email.strip().lower()
+        reset_code = reset_code.strip()
+        
+        # Validate inputs
+        if not validate_email(email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid email format"
+            )
+        
+        if not validate_password(new_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters with uppercase, lowercase and numbers"
+            )
+        
+        # Check if user exists
+        user = await get_user_by_email(db, email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Verify reset code
+        from app.models.otp import verify_otp, OTP_TYPE_PASSWORD_RESET
+        otp_valid = await verify_otp(db, email, reset_code, OTP_TYPE_PASSWORD_RESET)
+        
+        if not otp_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset code"
+            )
+        
+        # Hash new password
+        hashed_password = get_password_hash(new_password)
+        
+        # Update user's password
+        update_data = {
+            "password": hashed_password,
+            "updated_at": datetime.utcnow()
+        }
+        
+        await update_user(db, user["_id"], update_data)
+        
+        # Optionally, invalidate all existing sessions/tokens here
+        # This would require implementing a token blacklist system
+        
+        return {
+            "message": "Password has been successfully reset. Please login with your new password."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Password reset verification error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password"
         )

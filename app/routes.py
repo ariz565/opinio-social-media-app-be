@@ -4,13 +4,15 @@ from fastapi.security import OAuth2PasswordRequestForm
 # Import business logic functions from v1
 from app.api.v1.auth_functions import (
     register_new_user_logic, login_user_logic, refresh_token_logic,
-    verify_email_logic, resend_verification_logic
+    verify_email_logic, resend_verification_logic,
+    request_password_reset_logic, verify_password_reset_logic
 )
 from app.api.v1.user_functions import (
     get_user_profile_logic, update_user_profile_logic
 )
 from app.schemas.user import (
-    UserRegistration, UserLogin, EmailVerification, RefreshToken
+    UserRegistration, UserLogin, EmailVerification, RefreshToken,
+    PasswordResetRequest, PasswordResetVerify
 )
 from app.config import get_settings
 
@@ -52,6 +54,16 @@ async def verify_email(verification_data: EmailVerification):
 async def resend_verification_email(request: Request):
     """Resend verification email"""
     return await resend_verification_logic(request)
+
+@router.post("/auth/forgot-password")
+async def forgot_password(reset_data: PasswordResetRequest):
+    """Request password reset"""
+    return await request_password_reset_logic(reset_data)
+
+@router.post("/auth/reset-password")
+async def reset_password(verify_data: PasswordResetVerify):
+    """Reset password using verification code"""
+    return await verify_password_reset_logic(verify_data)
 
 # =============================================================================
 # USER ROUTES

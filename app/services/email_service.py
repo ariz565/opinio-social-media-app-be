@@ -91,58 +91,21 @@ class EmailService:
             logger.error(f"Verification email failed: {str(e)}")
             return False
     
-    async def send_password_reset_email(self, to_email, full_name, otp_code):
-        """Send password reset OTP"""
+    async def send_password_reset_email(self, to_email, full_name, reset_code, reset_link):
+        """Send password reset email with template"""
         try:
-            # Create a simple HTML template for password reset
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        line-height: 1.6;
-                        margin: 0;
-                        padding: 20px;
-                        background-color: #f4f4f4;
-                    }}
-                    .container {{
-                        max-width: 600px;
-                        margin: 0 auto;
-                        background: white;
-                        padding: 20px;
-                        border-radius: 10px;
-                    }}
-                    .otp-box {{
-                        background: #f8f9fa;
-                        border: 2px dashed #dee2e6;
-                        border-radius: 8px;
-                        padding: 20px;
-                        margin: 20px 0;
-                        font-size: 32px;
-                        font-weight: bold;
-                        text-align: center;
-                        letter-spacing: 8px;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h2>Password Reset Request</h2>
-                    <p>Hello {full_name},</p>
-                    <p>You requested to reset your password. Use the code below:</p>
-                    <div class="otp-box">{otp_code}</div>
-                    <p>This code expires in 10 minutes.</p>
-                    <p>If you didn't request this, please ignore this email.</p>
-                </div>
-            </body>
-            </html>
-            """
+            template = self.jinja_env.get_template("password_reset.html")
+            
+            html_content = template.render(
+                full_name=full_name,
+                reset_code=reset_code,
+                reset_link=reset_link
+            )
             
             subject = "Reset Your Gulf Return Password"
             
-            return await self.send_email(to_email, subject, html_content)
+            result = await self.send_email(to_email, subject, html_content)
+            return result
         
         except Exception as e:
             logger.error(f"Password reset email failed: {str(e)}")

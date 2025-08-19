@@ -50,7 +50,7 @@
       .logo {
         width: 140px;
         height: 140px;
-        background: rgba(255, 255, 255, 0.95);
+        background: #ffffff;
         border-radius: 24px;
         margin: 0 auto 30px;
         display: flex;
@@ -62,14 +62,10 @@
         box-shadow: 0 8px 32px rgba(59, 130, 246, 0.3), 0 0 0 2px #3b82f6;
       }
 
-      .logo img {
-        width: 120px;
-        height: 120px;
-        border-radius: 20px;
-        object-fit: cover;
-        border: 2px solid #e2e8f0;
+      .logo svg {
+        width: 80px;
+        height: 80px;
       }
-
       .header h1 {
         color: #ffffff;
         font-size: 32px;
@@ -307,11 +303,10 @@
           height: 120px;
         }
 
-        .logo img {
-          width: 100px;
-          height: 100px;
+        .logo svg {
+          width: 60px;
+          height: 60px;
         }
-
         .content {
           padding: 40px 20px;
         }
@@ -337,10 +332,76 @@
       <!-- Header Section -->
       <div class="header">
         <div class="logo">
-          <img
-            src="https://via.placeholder.com/120x120/2563eb/ffffff?text=GR"
-            alt="Gulf Return Logo"
-          />
+          <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <!-- Wave background representing Gulf waters -->
+            <defs>
+              <linearGradient
+                id="waveGradient"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
+                <stop offset="0%" stop-color="#3b82f6" stop-opacity="1" />
+                <stop offset="100%" stop-color="#1e40af" stop-opacity="1" />
+              </linearGradient>
+              <linearGradient
+                id="textGradient"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
+                <stop offset="0%" stop-color="#1e40af" stop-opacity="1" />
+                <stop offset="100%" stop-color="#3b82f6" stop-opacity="1" />
+              </linearGradient>
+            </defs>
+
+            <!-- Background circle -->
+            <circle
+              cx="50"
+              cy="50"
+              r="48"
+              fill="#ffffff"
+              stroke="#e5e7eb"
+              stroke-width="2"
+            />
+
+            <!-- Gulf waters wave -->
+            <path
+              d="M15 35 Q30 25, 45 35 T75 35 Q85 40, 90 50 L90 75 Q85 70, 75 75 T45 75 Q30 80, 15 75 Z"
+              fill="url(#waveGradient)"
+              opacity="0.8"
+            />
+
+            <!-- Return arrow -->
+            <path
+              d="M25 45 L35 35 M25 45 L35 55 M25 45 L65 45"
+              stroke="#1e40af"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              fill="none"
+            />
+
+            <!-- Gulf Return text -->
+            <text
+              x="50"
+              y="30"
+              text-anchor="middle"
+              fill="url(#textGradient)"
+              font-family="Arial, sans-serif"
+              font-size="12"
+              font-weight="bold"
+            >
+              GR
+            </text>
+
+            <!-- Connection dots -->
+            <circle cx="70" cy="35" r="2" fill="#3b82f6" />
+            <circle cx="75" cy="40" r="1.5" fill="#60a5fa" />
+            <circle cx="65" cy="40" r="1.5" fill="#60a5fa" />
+          </svg>
         </div>
         <h1>Gulf Return</h1>
         <p>Connect • Share • Discover</p>
