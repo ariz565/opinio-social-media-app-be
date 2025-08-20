@@ -39,6 +39,12 @@ def get_settings():
         "UPLOAD_DIR": os.getenv("UPLOAD_DIR", "uploads"),
         "MAX_UPLOAD_SIZE": int(os.getenv("MAX_UPLOAD_SIZE", "10485760")),  # 10MB
         
+        # Cloudinary settings
+        "CLOUDINARY_NAME": os.getenv("CLOUDINARY_NAME"),
+        "CLOUDINARY_KEY": os.getenv("CLOUDINARY_KEY"),
+        "CLOUDINARY_SECRET": os.getenv("CLOUDINARY_SECRET"),
+        "CLOUDINARY_UPLOAD_FOLDER": os.getenv("CLOUDINARY_UPLOAD_FOLDER", "gulf-return-social-media"),
+        
         # Email settings
         "EMAIL": os.getenv("EMAIL", ""),
         "EMAIL_PASSWORD": os.getenv("EMAIL_PASSWORD", ""),

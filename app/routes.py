@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from typing import List, Optional
 
 # Import business logic functions from v1
 from app.api.v1.auth_functions import (
@@ -10,10 +11,63 @@ from app.api.v1.auth_functions import (
 from app.api.v1.user_functions import (
     get_user_profile_logic, update_user_profile_logic
 )
+from app.api.v1.posts import (
+    create_post_logic, save_draft_logic, publish_draft_logic,
+    update_post_logic, delete_post_logic, get_post_logic,
+    get_user_posts_logic, get_feed_logic, pin_post_logic,
+    unpin_post_logic, get_user_drafts_logic, search_posts_logic,
+    get_trending_posts_logic, vote_on_poll_logic, get_user_stats_logic,
+    get_post_edit_history_logic, archive_post_logic, get_post_analytics_logic,
+    upload_media_logic, upload_post_media_logic, create_post_with_media_logic
+)
+# Import interaction system functions
+from app.api.v1.reactions import (
+    add_reaction_to_target, remove_reaction_from_target, get_target_reactions,
+    get_target_reaction_counts, get_user_reaction_for_target, get_user_reactions_list,
+    get_popular_reactions, toggle_reaction
+)
+from app.api.v1.comments import (
+    create_comment, get_post_comments, get_comment_by_id, update_comment,
+    delete_comment, get_comment_thread, get_comment_replies, search_comments,
+    get_user_comments, get_comment_mentions, get_comment_analytics
+)
+from app.api.v1.bookmarks import (
+    create_bookmark_collection, get_user_collections, update_bookmark_collection,
+    delete_bookmark_collection, share_collection, add_bookmark, remove_bookmark,
+    get_user_bookmarks, update_bookmark, check_bookmark_status, bulk_move_bookmarks,
+    bulk_delete_bookmarks, get_bookmark_analytics
+)
+from app.api.v1.follows import (
+    follow_user, unfollow_user, respond_to_follow_request, get_follow_requests,
+    get_user_followers, get_user_following, add_to_close_friends, remove_from_close_friends,
+    block_user, unblock_user, mute_user, unmute_user, restrict_user, unrestrict_user,
+    get_user_connections, get_follow_status, get_mutual_connections, get_friend_suggestions
+)
+from app.api.v1.shares import (
+    share_post, get_post_shares, get_user_shares, get_reposts_feed,
+    delete_share, get_share_analytics, get_trending_shares, get_user_share_count,
+    check_user_shared_post, get_repost_by_id
+)
 from app.schemas.user import (
     UserRegistration, UserLogin, EmailVerification, RefreshToken,
     PasswordResetRequest, PasswordResetVerify, EmailRequest
 )
+from app.schemas.post import (
+    PostCreate, PostUpdate, PostResponse, PostListResponse,
+    PostSchedule, DraftSave, PostSearchQuery, PollVote, PostStats
+)
+# Import interaction system schemas
+from app.schemas.interactions import (
+    ReactionCreate, ReactionResponse, ReactionWithUser, ReactionCounts,
+    CommentCreate, CommentUpdate, CommentResponse, CommentListParams,
+    BookmarkCreate, BookmarkUpdate, BookmarkResponse, BookmarkCollectionCreate,
+    BookmarkCollectionUpdate, BookmarkCollectionResponse, BookmarkListParams,
+    BulkBookmarkOperation, FollowResponse, FollowRequestResponse, FollowerResponse,
+    FollowingResponse, FollowRequestItem, MutualConnection, FriendSuggestion,
+    UserConnections, FollowListParams, ShareCreate, ShareResponse, UserShareResponse,
+    RepostFeedItem, ShareAnalytics, TrendingShare, MessageResponse
+)
+from app.utils.decorators import require_authentication, require_active_user, log_endpoint_access
 from app.config import get_settings
 
 # Get settings
@@ -76,13 +130,25 @@ async def reset_password(verify_data: PasswordResetVerify):
 # =============================================================================
 
 @router.get("/users/me")
+@require_authentication
+@log_endpoint_access
 async def get_current_user_profile(request: Request):
-    """Get current user profile"""
+    """
+    Get current user profile
+    
+    🔐 Requires Authentication
+    """
     return await get_user_profile_logic(request)
 
 @router.put("/users/me")
+@require_authentication
+@log_endpoint_access
 async def update_current_user_profile(request: Request):
-    """Update current user profile"""
+    """
+    Update current user profile
+    
+    🔐 Requires Authentication
+    """
     return await update_user_profile_logic(request)
 
 # =============================================================================
@@ -128,6 +194,302 @@ async def update_current_user_profile(request: Request):
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "message": "Gulf Return Social Media API is running"}
+
+# =============================================================================
+# POST MANAGEMENT ROUTES
+# =============================================================================
+
+@router.post("/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def create_post(post_data: PostCreate):
+    """
+    Create a new post
+    
+    Supports:
+    - Text posts with rich formatting
+    - Image posts (single/multiple)
+    - Video posts with thumbnail generation
+    - GIF support
+    - Poll creation
+    - Location tagging
+    - Mood/activity status
+    
+    🔐 Requires Authentication
+    """
+    return await create_post_logic(post_data)
+
+@router.post("/posts/drafts", response_model=PostResponse, status_code=status.HTTP_201_CREATED, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def save_post_draft(draft_data: DraftSave):
+    """
+    Save post as draft
+    
+    🔐 Requires Authentication
+    """
+    return await save_draft_logic(draft_data)
+
+@router.post("/posts/drafts/{draft_id}/publish", response_model=PostResponse, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def publish_draft(draft_id: str, schedule_data: PostSchedule = None):
+    """
+    Publish a draft post
+    
+    Can be published immediately or scheduled for later
+    
+    🔐 Requires Authentication
+    """
+    return await publish_draft_logic(draft_id, schedule_data)
+
+@router.put("/posts/{post_id}", response_model=PostResponse, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def update_post(post_id: str, update_data: PostUpdate):
+    """
+    Update an existing post
+    
+    Features:
+    - Edit history tracking
+    - Content validation
+    - Media updates
+    
+    🔐 Requires Authentication
+    """
+    return await update_post_logic(post_id, update_data)
+
+@router.delete("/posts/{post_id}", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def delete_post(post_id: str, permanent: bool = False):
+    """
+    Delete a post
+    
+    - Default: Soft delete (archive)
+    - permanent=true: Permanently delete
+    
+    🔐 Requires Authentication
+    """
+    return await delete_post_logic(post_id, permanent)
+
+@router.get("/posts/{post_id}", response_model=PostResponse, tags=["Posts"])
+async def get_post(post_id: str):
+    """
+    Get a single post by ID
+    
+    Includes visibility checks and view count increment
+    """
+    return await get_post_logic(post_id)
+
+@router.get("/posts/users/{user_id}", response_model=PostListResponse, tags=["Posts"])
+async def get_user_posts(
+    user_id: str,
+    page: int = 1,
+    per_page: int = 20,
+    include_drafts: bool = False
+):
+    """
+    Get posts by a specific user
+    
+    Supports pagination and draft inclusion for post owners
+    """
+    return await get_user_posts_logic(user_id, page, per_page, include_drafts)
+
+@router.get("/posts/feed", response_model=PostListResponse, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def get_feed(page: int = 1, per_page: int = 20):
+    """
+    Get personalized feed for authenticated user
+    
+    Shows posts from followed users and own posts
+    
+    🔐 Requires Authentication
+    """
+    return await get_feed_logic(page, per_page)
+
+@router.post("/posts/{post_id}/pin", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def pin_post(post_id: str):
+    """
+    Pin post to profile
+    
+    Only one post can be pinned at a time
+    
+    🔐 Requires Authentication
+    """
+    return await pin_post_logic(post_id)
+
+@router.delete("/posts/{post_id}/pin", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def unpin_post(post_id: str):
+    """
+    Unpin post from profile
+    
+    🔐 Requires Authentication
+    """
+    return await unpin_post_logic(post_id)
+
+@router.get("/posts/drafts", response_model=List[PostResponse], tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def get_user_drafts():
+    """
+    Get all drafts for the current user
+    
+    🔐 Requires Authentication
+    """
+    return await get_user_drafts_logic()
+
+@router.get("/posts/search", response_model=PostListResponse, tags=["Posts"])
+async def search_posts(
+    query: str,
+    post_type: str = None,
+    hashtags: str = None,
+    location: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    page: int = 1,
+    per_page: int = 20
+):
+    """
+    Search posts with advanced filters
+    
+    Supports:
+    - Content search
+    - Type filtering
+    - Hashtag filtering
+    - Location filtering
+    - Date range filtering
+    - Custom sorting
+    """
+    return await search_posts_logic(
+        query, post_type, hashtags, location, date_from, date_to,
+        sort_by, sort_order, page, per_page
+    )
+
+@router.get("/posts/trending", response_model=List[PostResponse], tags=["Posts"])
+async def get_trending_posts(hours: int = 24, limit: int = 50):
+    """
+    Get trending posts based on engagement
+    
+    Algorithm considers likes, comments, shares, and views
+    """
+    return await get_trending_posts_logic(hours, limit)
+
+@router.post("/posts/{post_id}/vote", response_model=PostResponse, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def vote_on_poll(post_id: str, vote_data: PollVote):
+    """
+    Vote on a poll post
+    
+    Supports single and multiple choice polls
+    
+    🔐 Requires Authentication
+    """
+    return await vote_on_poll_logic(post_id, vote_data)
+
+@router.get("/posts/stats", response_model=PostStats, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def get_user_post_stats(user_id: str = None):
+    """
+    Get post statistics for a user
+    
+    Returns counts for different post types and engagement metrics
+    
+    🔐 Requires Authentication
+    """
+    return await get_user_stats_logic(user_id)
+
+@router.get("/posts/{post_id}/history", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def get_post_edit_history(post_id: str):
+    """
+    Get edit history for a post
+    
+    Only available to post authors
+    
+    🔐 Requires Authentication
+    """
+    return await get_post_edit_history_logic(post_id)
+
+@router.post("/posts/{post_id}/archive", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def archive_post(post_id: str):
+    """
+    Archive a post (same as soft delete)
+    
+    🔐 Requires Authentication
+    """
+    return await archive_post_logic(post_id)
+
+@router.get("/posts/{post_id}/analytics", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def get_post_analytics(post_id: str):
+    """
+    Get detailed analytics for a post
+    
+    Only available to post authors
+    
+    🔐 Requires Authentication
+    """
+    return await get_post_analytics_logic(post_id)
+
+# =============================================================================
+# MEDIA UPLOAD ROUTES
+# =============================================================================
+
+@router.post("/media/upload", tags=["Media"])
+@require_authentication
+@log_endpoint_access
+async def upload_media():
+    """
+    Upload media files (images/videos) for posts
+    
+    Supports up to 10 files per request.
+    Accepts: JPG, PNG, GIF, MP4, MOV, AVI
+    
+    🔐 Requires Authentication
+    """
+    return await upload_media_logic()
+
+@router.post("/posts/{post_id}/media", response_model=PostResponse, tags=["Media"])
+@require_authentication
+@log_endpoint_access
+async def upload_post_media(post_id: str):
+    """
+    Upload media files to an existing post
+    
+    Supports up to 10 files per request.
+    Accepts: JPG, PNG, GIF, MP4, MOV, AVI
+    
+    🔐 Requires Authentication
+    """
+    return await upload_post_media_logic(post_id)
+
+@router.post("/posts/with-media", response_model=PostResponse, status_code=status.HTTP_201_CREATED, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def create_post_with_media():
+    """
+    Create a new post with media files
+    
+    Upload images/videos while creating the post.
+    Supports up to 10 files per request.
+    
+    🔐 Requires Authentication
+    """
+    return await create_post_with_media_logic()
 
 # =============================================================================
 # AUTHENTICATION ROUTES - MOVED TO auth.py
@@ -263,6 +625,652 @@ async def health_check():
 # async def get_trending_posts_list(pagination: PaginationParams = Depends()):
 #     """Get trending posts"""
 #     return await get_trending_posts(pagination)
+
+# =============================================================================
+# INTERACTION SYSTEM ROUTES
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# REACTIONS SYSTEM
+# -----------------------------------------------------------------------------
+
+@router.post("/reactions", response_model=ReactionResponse, tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def add_reaction(reaction_data: ReactionCreate):
+    """
+    🔐 Requires Authentication
+    Add or update a reaction to a post, comment, or story
+    """
+    return await add_reaction_to_target(reaction_data)
+
+@router.delete("/reactions/{target_type}/{target_id}", response_model=MessageResponse, tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def remove_reaction(target_id: str, target_type: str):
+    """
+    🔐 Requires Authentication
+    Remove user's reaction from a target
+    """
+    return await remove_reaction_from_target(target_id, target_type)
+
+@router.post("/reactions/{target_type}/{target_id}/{reaction_type}/toggle", response_model=ReactionResponse, tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def toggle_user_reaction(target_id: str, target_type: str, reaction_type: str):
+    """
+    🔐 Requires Authentication
+    Toggle a reaction (add if not exists, remove if exists, or update if different)
+    """
+    return await toggle_reaction(target_id, target_type, reaction_type)
+
+@router.get("/reactions/{target_type}/{target_id}", response_model=List[ReactionWithUser], tags=["Reactions"])
+async def get_reactions(
+    target_id: str, 
+    target_type: str, 
+    reaction_type: Optional[str] = None,
+    limit: int = 50, 
+    skip: int = 0
+):
+    """
+    Get reactions for a specific target with user details
+    Public endpoint - no authentication required
+    """
+    return await get_target_reactions(target_id, target_type, reaction_type, limit, skip)
+
+@router.get("/reactions/{target_type}/{target_id}/counts", response_model=ReactionCounts, tags=["Reactions"])
+async def get_reaction_counts(target_id: str, target_type: str):
+    """
+    Get reaction counts for a target
+    Public endpoint - no authentication required
+    """
+    return await get_target_reaction_counts(target_id, target_type)
+
+@router.get("/reactions/{target_type}/{target_id}/me", response_model=Optional[ReactionResponse], tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def get_my_reaction(target_id: str, target_type: str):
+    """
+    🔐 Requires Authentication
+    Get current user's reaction for a specific target
+    """
+    return await get_user_reaction_for_target(target_id, target_type)
+
+@router.get("/users/me/reactions", response_model=List[ReactionResponse], tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def get_my_reactions(
+    target_type: Optional[str] = None,
+    reaction_type: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0
+):
+    """
+    🔐 Requires Authentication
+    Get all reactions made by the current user
+    """
+    return await get_user_reactions_list(target_type, reaction_type, limit, skip)
+
+@router.get("/reactions/{target_type}/popular", tags=["Reactions"])
+async def get_popular_content(target_type: str, days: int = 7, limit: int = 10):
+    """
+    Get most reacted content in the last N days
+    Public endpoint - no authentication required
+    """
+    return await get_popular_reactions(target_type, days, limit)
+
+# -----------------------------------------------------------------------------
+# COMMENTS SYSTEM
+# -----------------------------------------------------------------------------
+
+@router.post("/comments", response_model=CommentResponse, tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def create_new_comment(comment_data: CommentCreate):
+    """
+    🔐 Requires Authentication
+    Create a new comment or reply to an existing comment
+    """
+    return await create_comment(comment_data)
+
+@router.get("/posts/{post_id}/comments", response_model=List[CommentResponse], tags=["Comments"])
+async def get_comments_for_post(post_id: str, params: CommentListParams = None):
+    """
+    Get comments for a post with advanced sorting and threading
+    Public endpoint - no authentication required for viewing comments
+    """
+    if params is None:
+        params = CommentListParams()
+    return await get_post_comments(post_id, params)
+
+@router.get("/comments/{comment_id}", response_model=CommentResponse, tags=["Comments"])
+async def get_single_comment(comment_id: str):
+    """
+    Get a specific comment by ID
+    Public endpoint - no authentication required
+    """
+    return await get_comment_by_id(comment_id)
+
+@router.put("/comments/{comment_id}", response_model=CommentResponse, tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def update_existing_comment(comment_id: str, comment_data: CommentUpdate):
+    """
+    🔐 Requires Authentication
+    Update a comment's content (only by the comment author)
+    """
+    return await update_comment(comment_id, comment_data)
+
+@router.delete("/comments/{comment_id}", response_model=MessageResponse, tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def delete_existing_comment(comment_id: str):
+    """
+    🔐 Requires Authentication
+    Delete a comment (soft delete - only by comment author or admin)
+    """
+    return await delete_comment(comment_id)
+
+@router.get("/comments/{comment_id}/thread", response_model=CommentResponse, tags=["Comments"])
+async def get_full_comment_thread(comment_id: str, max_depth: int = 5):
+    """
+    Get a complete comment thread starting from a specific comment
+    Public endpoint - no authentication required
+    """
+    return await get_comment_thread(comment_id, max_depth)
+
+@router.get("/comments/{comment_id}/replies", response_model=List[CommentResponse], tags=["Comments"])
+async def get_direct_replies(comment_id: str, limit: int = 10, sort_type: str = "newest"):
+    """
+    Get direct replies to a specific comment
+    Public endpoint - no authentication required
+    """
+    from app.models.comment import CommentSortType
+    sort_enum = CommentSortType(sort_type)
+    return await get_comment_replies(comment_id, limit, sort_enum)
+
+@router.get("/posts/{post_id}/comments/search", response_model=List[CommentResponse], tags=["Comments"])
+async def search_post_comments(post_id: str, search_term: str, limit: int = 20, skip: int = 0):
+    """
+    Search comments within a post by content
+    Public endpoint - no authentication required
+    """
+    return await search_comments(post_id, search_term, limit, skip)
+
+@router.get("/users/me/comments", tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def get_my_comments(
+    user_id: Optional[str] = None,
+    limit: int = 20,
+    skip: int = 0,
+    include_replies: bool = True
+):
+    """
+    🔐 Requires Authentication
+    Get comments by a specific user (defaults to current user)
+    """
+    return await get_user_comments(user_id, limit, skip, include_replies)
+
+@router.get("/users/me/mentions", response_model=List[CommentResponse], tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def get_my_mentions(limit: int = 20, skip: int = 0):
+    """
+    🔐 Requires Authentication
+    Get comments where the current user is mentioned
+    """
+    return await get_comment_mentions(limit=limit, skip=skip)
+
+@router.get("/posts/{post_id}/comments/analytics", tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def get_post_comment_analytics(post_id: str):
+    """
+    🔐 Requires Authentication
+    Get comment analytics for a post (post owner only)
+    """
+    return await get_comment_analytics(post_id)
+
+# -----------------------------------------------------------------------------
+# BOOKMARKS SYSTEM
+# -----------------------------------------------------------------------------
+
+@router.post("/bookmark-collections", response_model=BookmarkCollectionResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def create_new_collection(collection_data: BookmarkCollectionCreate):
+    """
+    🔐 Requires Authentication
+    Create a new bookmark collection/folder
+    """
+    return await create_bookmark_collection(collection_data)
+
+@router.get("/bookmark-collections", response_model=List[BookmarkCollectionResponse], tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def get_my_collections(include_shared: bool = False):
+    """
+    🔐 Requires Authentication
+    Get user's bookmark collections
+    """
+    return await get_user_collections(include_shared)
+
+@router.put("/bookmark-collections/{collection_id}", response_model=BookmarkCollectionResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def update_collection(collection_id: str, collection_data: BookmarkCollectionUpdate):
+    """
+    🔐 Requires Authentication
+    Update a bookmark collection
+    """
+    return await update_bookmark_collection(collection_id, collection_data)
+
+@router.delete("/bookmark-collections/{collection_id}", response_model=MessageResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def delete_collection(collection_id: str):
+    """
+    🔐 Requires Authentication
+    Delete a bookmark collection and move bookmarks to default
+    """
+    return await delete_bookmark_collection(collection_id)
+
+@router.post("/bookmark-collections/{collection_id}/share", response_model=MessageResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def share_bookmark_collection(collection_id: str, shared_with_user_ids: List[str]):
+    """
+    🔐 Requires Authentication
+    Share collection with specific users
+    """
+    return await share_collection(collection_id, shared_with_user_ids)
+
+@router.post("/bookmarks", response_model=BookmarkResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def add_new_bookmark(bookmark_data: BookmarkCreate):
+    """
+    🔐 Requires Authentication
+    Add a post to bookmarks
+    """
+    return await add_bookmark(bookmark_data)
+
+@router.delete("/bookmarks/posts/{post_id}", response_model=MessageResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def remove_existing_bookmark(post_id: str):
+    """
+    🔐 Requires Authentication
+    Remove a bookmark
+    """
+    return await remove_bookmark(post_id)
+
+@router.get("/bookmarks", response_model=List[BookmarkResponse], tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def get_my_bookmarks(params: BookmarkListParams = None):
+    """
+    🔐 Requires Authentication
+    Get user's bookmarks with filtering options
+    """
+    if params is None:
+        params = BookmarkListParams()
+    return await get_user_bookmarks(params)
+
+@router.put("/bookmarks/{bookmark_id}", response_model=BookmarkResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def update_existing_bookmark(bookmark_id: str, bookmark_data: BookmarkUpdate):
+    """
+    🔐 Requires Authentication
+    Update bookmark notes or move to different collection
+    """
+    return await update_bookmark(bookmark_id, bookmark_data)
+
+@router.get("/bookmarks/posts/{post_id}/status", tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def check_post_bookmark_status(post_id: str):
+    """
+    🔐 Requires Authentication
+    Check if user has bookmarked a post
+    """
+    return await check_bookmark_status(post_id)
+
+@router.post("/bookmarks/bulk/move", response_model=MessageResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def bulk_move_user_bookmarks(operation: BulkBookmarkOperation):
+    """
+    🔐 Requires Authentication
+    Move multiple bookmarks to a different collection
+    """
+    return await bulk_move_bookmarks(operation)
+
+@router.post("/bookmarks/bulk/delete", response_model=MessageResponse, tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def bulk_delete_user_bookmarks(bookmark_ids: List[str]):
+    """
+    🔐 Requires Authentication
+    Delete multiple bookmarks
+    """
+    return await bulk_delete_bookmarks(bookmark_ids)
+
+@router.get("/bookmarks/analytics", tags=["Bookmarks"])
+@require_authentication
+@log_endpoint_access
+async def get_my_bookmark_analytics():
+    """
+    🔐 Requires Authentication
+    Get user's bookmark analytics
+    """
+    return await get_bookmark_analytics()
+
+# -----------------------------------------------------------------------------
+# FOLLOW SYSTEM
+# -----------------------------------------------------------------------------
+
+@router.post("/users/{user_id}/follow", response_model=FollowResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def follow_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Follow a user or send follow request for private accounts
+    """
+    return await follow_user(user_id)
+
+@router.delete("/users/{user_id}/follow", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def unfollow_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Unfollow a user or cancel follow request
+    """
+    return await unfollow_user(user_id)
+
+@router.post("/follow-requests/respond", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def respond_follow_request(request_data: FollowRequestResponse):
+    """
+    🔐 Requires Authentication
+    Accept or decline a follow request
+    """
+    return await respond_to_follow_request(request_data)
+
+@router.get("/follow-requests", response_model=List[FollowRequestItem], tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def get_my_follow_requests(incoming: bool = True, params: FollowListParams = None):
+    """
+    🔐 Requires Authentication
+    Get pending follow requests (incoming or outgoing)
+    """
+    if params is None:
+        params = FollowListParams()
+    return await get_follow_requests(incoming, params)
+
+@router.get("/users/{user_id}/followers", response_model=List[FollowerResponse], tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def get_followers_list(user_id: str, params: FollowListParams = None):
+    """
+    🔐 Requires Authentication
+    Get user's followers list
+    """
+    if params is None:
+        params = FollowListParams()
+    return await get_user_followers(user_id, params)
+
+@router.get("/users/{user_id}/following", response_model=List[FollowingResponse], tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def get_following_list(user_id: str, params: FollowListParams = None):
+    """
+    🔐 Requires Authentication
+    Get users that a user is following
+    """
+    if params is None:
+        params = FollowListParams()
+    return await get_user_following(user_id, params)
+
+@router.post("/users/{user_id}/close-friends", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def add_user_to_close_friends(user_id: str):
+    """
+    🔐 Requires Authentication
+    Add user to close friends list
+    """
+    return await add_to_close_friends(user_id)
+
+@router.delete("/users/{user_id}/close-friends", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def remove_user_from_close_friends(user_id: str):
+    """
+    🔐 Requires Authentication
+    Remove user from close friends list
+    """
+    return await remove_from_close_friends(user_id)
+
+@router.post("/users/{user_id}/block", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def block_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Block a user
+    """
+    return await block_user(user_id)
+
+@router.delete("/users/{user_id}/block", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def unblock_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Unblock a user
+    """
+    return await unblock_user(user_id)
+
+@router.post("/users/{user_id}/mute", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def mute_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Mute a user
+    """
+    return await mute_user(user_id)
+
+@router.delete("/users/{user_id}/mute", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def unmute_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Unmute a user
+    """
+    return await unmute_user(user_id)
+
+@router.post("/users/{user_id}/restrict", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def restrict_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Restrict a user (limited interactions)
+    """
+    return await restrict_user(user_id)
+
+@router.delete("/users/{user_id}/restrict", response_model=MessageResponse, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def unrestrict_a_user(user_id: str):
+    """
+    🔐 Requires Authentication
+    Remove restriction from a user
+    """
+    return await unrestrict_user(user_id)
+
+@router.get("/users/me/connections", response_model=UserConnections, tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def get_my_connections():
+    """
+    🔐 Requires Authentication
+    Get all user connections (close friends, blocked, muted, restricted)
+    """
+    return await get_user_connections()
+
+@router.get("/users/{user_id}/follow-status", tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def get_user_follow_status(user_id: str):
+    """
+    🔐 Requires Authentication
+    Get follow status with another user
+    """
+    return await get_follow_status(user_id)
+
+@router.get("/users/{user_id}/mutual", response_model=List[MutualConnection], tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def get_mutual_followers(user_id: str, limit: int = 10):
+    """
+    🔐 Requires Authentication
+    Get mutual followers between current user and target user
+    """
+    return await get_mutual_connections(user_id, limit)
+
+@router.get("/suggestions/friends", response_model=List[FriendSuggestion], tags=["Follows"])
+@require_authentication
+@log_endpoint_access
+async def get_friend_suggestions_list(limit: int = 10):
+    """
+    🔐 Requires Authentication
+    Get friend suggestions based on mutual connections
+    """
+    return await get_friend_suggestions(limit)
+
+# -----------------------------------------------------------------------------
+# SHARING SYSTEM
+# -----------------------------------------------------------------------------
+
+@router.post("/shares", tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def share_a_post(share_data: ShareCreate):
+    """
+    🔐 Requires Authentication
+    Share a post with various options (repost, story, DM, external)
+    """
+    return await share_post(share_data)
+
+@router.get("/posts/{post_id}/shares", response_model=List[ShareResponse], tags=["Shares"])
+async def get_shares_for_post(
+    post_id: str,
+    share_type: Optional[str] = None,
+    limit: int = 20,
+    skip: int = 0
+):
+    """
+    Get shares for a specific post
+    Public endpoint - no authentication required
+    """
+    return await get_post_shares(post_id, share_type, limit, skip)
+
+@router.get("/users/shares", response_model=List[UserShareResponse], tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def get_user_shares_list(
+    user_id: Optional[str] = None,
+    share_type: Optional[str] = None,
+    limit: int = 20,
+    skip: int = 0
+):
+    """
+    🔐 Requires Authentication
+    Get shares made by a specific user (defaults to current user)
+    """
+    return await get_user_shares(user_id, share_type, limit, skip)
+
+@router.get("/reposts/feed", response_model=List[RepostFeedItem], tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def get_reposts_timeline(limit: int = 20, skip: int = 0):
+    """
+    🔐 Requires Authentication
+    Get reposts from users that the current user follows
+    """
+    return await get_reposts_feed(limit, skip)
+
+@router.delete("/shares/{share_id}", response_model=MessageResponse, tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def delete_a_share(share_id: str):
+    """
+    🔐 Requires Authentication
+    Delete a share (and associated repost if applicable)
+    """
+    return await delete_share(share_id)
+
+@router.get("/posts/{post_id}/shares/analytics", response_model=ShareAnalytics, tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def get_post_share_analytics(post_id: str):
+    """
+    🔐 Requires Authentication
+    Get sharing analytics for a post (post owner only)
+    """
+    return await get_share_analytics(post_id)
+
+@router.get("/shares/trending", response_model=List[TrendingShare], tags=["Shares"])
+async def get_trending_shares_list(days: int = 7, limit: int = 10):
+    """
+    Get most shared posts in the last N days
+    Public endpoint - no authentication required
+    """
+    return await get_trending_shares(days, limit)
+
+@router.get("/users/shares/count", tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def get_user_share_stats(user_id: Optional[str] = None):
+    """
+    🔐 Requires Authentication
+    Get share count for a user
+    """
+    return await get_user_share_count(user_id)
+
+@router.get("/posts/{post_id}/shares/me", tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def check_my_share_status(post_id: str):
+    """
+    🔐 Requires Authentication
+    Check if current user has shared a specific post
+    """
+    return await check_user_shared_post(post_id)
+
+@router.get("/reposts/{repost_id}", tags=["Shares"])
+@require_authentication
+@log_endpoint_access
+async def get_single_repost(repost_id: str):
+    """
+    🔐 Requires Authentication
+    Get a specific repost with original post details
+    """
+    return await get_repost_by_id(repost_id)
+
+# =============================================================================
+# END OF IMPLEMENTED ROUTES
+# =============================================================================
 
 # =============================================================================
 # ALL OTHER ROUTES COMMENTED OUT - TO BE IMPLEMENTED LATER
