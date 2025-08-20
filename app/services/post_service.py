@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 import re
 import asyncio
 from fastapi import UploadFile
+from bson import ObjectId
 from app.models.post import Post
 from app.models import user as user_model
 from app.schemas.post import (
@@ -255,10 +256,11 @@ class PostService:
 
     async def get_feed(self, user_id: str, page: int = 1, per_page: int = 20) -> PostListResponse:
         """Get personalized feed for user"""
+        print(f"🔍 PostService.get_feed called - User ID: {user_id}, Page: {page}, Per Page: {per_page}")
         skip = (page - 1) * per_page
         
         # Get database instance
-        db = get_database()
+        db = await get_database()
         
         # Get user's following list
         user = await user_model.get_user_by_id(db, user_id)
@@ -273,7 +275,7 @@ class PostService:
 
         post_responses = [PostResponse(**post) for post in posts]
         
-        return PostListResponse(
+        result = PostListResponse(
             posts=post_responses,
             total=len(post_responses),
             page=page,
@@ -281,6 +283,7 @@ class PostService:
             has_next=len(post_responses) == per_page,
             has_prev=page > 1
         )
+        return result
 
     async def pin_post(self, user_id: str, post_id: str) -> bool:
         """Pin a post to user's profile"""
@@ -349,27 +352,34 @@ class PostService:
 
     async def get_trending_posts_paginated(self, hours: int = 24, limit: int = 20, skip: int = 0) -> tuple[List[PostResponse], int]:
         """Get trending posts with pagination"""
+        print(f"🔍 PostService.get_trending_posts_paginated called - hours: {hours}, limit: {limit}, skip: {skip}")
         try:
             # Get database connection
             db = await get_database()
             
             # Get total count first
             total = await self.post_model.get_trending_posts_count(hours)
+            print(f"🔍 Total trending posts count: {total}")
             
             # Get paginated posts
             posts = await self.post_model.get_trending_posts_paginated(hours, limit, skip)
+            print(f"🔍 Retrieved {len(posts) if posts else 0} posts from post model")
             if not posts:
+                print("🔍 No posts found, returning empty result")
                 return [], total
             
             result = []
-            for post in posts:
+            for i, post in enumerate(posts):
                 try:
+                    print(f"🔍 Processing post {i+1}: _id={post.get('_id')}, user_id={post.get('user_id')}")
                     # Ensure required fields exist
                     if not post.get('_id') or not post.get('user_id'):
+                        print(f"❌ Missing required fields in post {i+1}, skipping")
                         continue
                     
                     # Use author from aggregation if available, otherwise fetch separately
                     if not post.get('author'):
+                        print(f"🔍 No author in post {i+1}, fetching separately")
                         # Fallback: Get author information separately
                         author = await user_model.get_user_by_id(db, str(post['user_id']))
                         if author:
@@ -380,6 +390,7 @@ class PostService:
                                 'avatar_url': author.get('profile_picture'),
                                 'email': author.get('email', '')
                             }
+                            print(f"🔍 Added author for post {i+1}: {author.get('username')}")
                         else:
                             # Default author if user not found
                             post['author'] = {
@@ -389,11 +400,15 @@ class PostService:
                                 'avatar_url': None,
                                 'email': ''
                             }
+                            print(f"⚠️ User not found for post {i+1}, using default author")
+                    else:
+                        print(f"🔍 Post {i+1} already has author: {post['author'].get('username', 'unknown')}")
                     
                     # Convert _id to id for the response schema
                     if "_id" in post:
                         post["id"] = str(post["_id"])
                         del post["_id"]
+                        print(f"🔍 Converted _id to id for post {i+1}")
                     
                     # Ensure required fields with defaults
                     post.setdefault('like_count', 0)
@@ -405,13 +420,17 @@ class PostService:
                     post.setdefault('is_shared', False)
                     
                     result.append(PostResponse(**post))
+                    print(f"🔍 Successfully processed post {i+1}")
                 except Exception as e:
-                    print(f"Error processing post {post.get('_id', 'unknown')}: {str(e)}")
+                    print(f"❌ Error processing post {post.get('_id', 'unknown')}: {str(e)}")
                     continue
             
+            print(f"🔍 Returning {len(result)} trending posts, total: {total}")
             return result, total
         except Exception as e:
-            print(f"Error in get_trending_posts_paginated service: {str(e)}")
+            print(f"❌ Error in get_trending_posts_paginated service: {str(e)}")
+            import traceback
+            print(f"❌ Traceback: {traceback.format_exc()}")
             return [], 0
 
     async def get_trending_posts(self, hours: int = 24, limit: int = 50) -> List[PostResponse]:

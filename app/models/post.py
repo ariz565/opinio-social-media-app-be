@@ -105,24 +105,86 @@ class Post:
 
     async def get_feed_posts(self, user_id: str, following_ids: List[str], 
                            skip: int = 0, limit: int = 20) -> List[dict]:
-        """Get posts for user's feed"""
+        """Get posts for user's feed with author information"""
         collection = await self._get_collection()
         
         following_object_ids = [ObjectId(uid) for uid in following_ids]
         following_object_ids.append(ObjectId(user_id))  # Include user's own posts
         
-        query = {
-            "user_id": {"$in": following_object_ids},
-            "status": POST_STATUS_PUBLISHED,
-            "visibility": {"$in": [POST_VISIBILITY_PUBLIC, POST_VISIBILITY_FOLLOWERS]}
-        }
+        print(f"🔍 Feed query - User ID: {user_id}")
+        print(f"🔍 Feed query - Following IDs: {following_ids}")
+        print(f"🔍 Feed query - All user IDs to query: {[str(oid) for oid in following_object_ids]}")
         
-        cursor = collection.find(query).sort("created_at", -1).skip(skip).limit(limit)
+        # Use aggregation pipeline to include author information
+        pipeline = [
+            # Match posts from followed users + own posts
+            {
+                "$match": {
+                    "user_id": {"$in": following_object_ids},
+                    "status": POST_STATUS_PUBLISHED,
+                    "visibility": {"$in": [POST_VISIBILITY_PUBLIC, POST_VISIBILITY_FOLLOWERS]}
+                }
+            },
+            # Sort by creation date (newest first)
+            {
+                "$sort": {"created_at": -1}
+            },
+            # Skip and limit for pagination
+            {
+                "$skip": skip
+            },
+            {
+                "$limit": limit
+            },
+            # Join with users collection to get author data
+            {
+                "$lookup": {
+                    "from": "users",
+                    "localField": "user_id",
+                    "foreignField": "_id",
+                    "as": "author_data"
+                }
+            },
+            # Add author field with user information
+            {
+                "$addFields": {
+                    "author": {
+                        "$cond": {
+                            "if": {"$gt": [{"$size": "$author_data"}, 0]},
+                            "then": {
+                                "id": {"$toString": {"$arrayElemAt": ["$author_data._id", 0]}},
+                                "username": {"$arrayElemAt": ["$author_data.username", 0]},
+                                "full_name": {"$arrayElemAt": ["$author_data.full_name", 0]},
+                                "avatar_url": {"$arrayElemAt": ["$author_data.avatar_url", 0]},
+                                "email": {"$arrayElemAt": ["$author_data.email", 0]}
+                            },
+                            "else": {
+                                "id": "unknown",
+                                "username": "Unknown User",
+                                "full_name": "Unknown User",
+                                "avatar_url": None,
+                                "email": "unknown@example.com"
+                            }
+                        }
+                    }
+                }
+            },
+            # Clean up temporary fields
+            {
+                "$unset": ["author_data"]
+            }
+        ]
+        
+        print(f"🔍 Feed aggregation pipeline: {pipeline[0]}")  # Just show the match stage
+        
+        cursor = collection.aggregate(pipeline)
         posts = []
         async for post in cursor:
             post["_id"] = str(post["_id"])
+            post["id"] = post["_id"]  # Add id field for Pydantic validation
             post["user_id"] = str(post["user_id"])
             posts.append(post)
+        
         return posts
 
     async def update_post(self, post_id: str, update_data: dict, user_id: str) -> Optional[dict]:

@@ -42,7 +42,8 @@ class EmailService:
             message.attach(html_part)
             
             # Add logo as inline attachment
-            logo_path = "static/gulf_return_logo.jpg"
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            logo_path = os.path.join(current_dir, "static", "gulf_return_logo.jpg")
             if os.path.exists(logo_path):
                 with open(logo_path, "rb") as f:
                     logo_data = f.read()

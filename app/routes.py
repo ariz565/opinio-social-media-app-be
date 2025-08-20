@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException, status, Request, Query
+from fastapi import APIRouter, HTTPException, status, Request, Query, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List, Optional
+
+# Import authentication functions
+from app.core.auth import get_current_user
 
 # Import business logic functions from v1
 from app.api.v1.auth_functions import (
@@ -286,6 +289,33 @@ async def get_trending_posts(
     """
     return await get_trending_posts_logic(page, limit, hours)
 
+@router.get("/posts/feed", response_model=PostListResponse, tags=["Posts"])
+@log_endpoint_access
+async def get_feed(
+    page: int = 1, 
+    per_page: int = 20,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get personalized feed for authenticated user
+    
+    Shows posts from followed users and own posts
+    
+    🔐 Requires Authentication
+    """
+    # Handle both 'id' and '_id' field names
+    user_id = current_user.get('_id') or current_user.get('id')
+    
+    # Ensure the user object has '_id' field for compatibility
+    if '_id' not in current_user and 'id' in current_user:
+        current_user['_id'] = current_user['id']
+    
+    try:
+        result = await get_feed_logic(page, per_page, current_user)
+        return result
+    except Exception as e:
+        raise
+
 @router.get("/posts/{post_id}", response_model=PostResponse, tags=["Posts"])
 async def get_post(post_id: str):
     """
@@ -309,18 +339,121 @@ async def get_user_posts(
     """
     return await get_user_posts_logic(user_id, page, per_page, include_drafts)
 
-@router.get("/posts/feed", response_model=PostListResponse, tags=["Posts"])
+@router.post("/posts/{post_id}/like", tags=["Posts"])
 @require_authentication
 @log_endpoint_access
-async def get_feed(page: int = 1, per_page: int = 20):
+async def like_post(post_id: str, current_user: dict = Depends(get_current_user)):
     """
-    Get personalized feed for authenticated user
-    
-    Shows posts from followed users and own posts
+    Like/Unlike a post (toggle)
     
     🔐 Requires Authentication
     """
-    return await get_feed_logic(page, per_page)
+    print(f"🔍 Like endpoint called for post: {post_id} by user: {current_user.get('_id')}")
+    try:
+        # Use the toggle reaction functionality with "like" reaction type
+        reaction_data = ReactionCreate(
+            target_type="posts",
+            target_id=post_id,
+            reaction_type="like"
+        )
+        
+        # Toggle the reaction (add if not exists, remove if exists)
+        result = await toggle_reaction(current_user, reaction_data)
+        print(f"🔍 Like toggle result: {result}")
+        
+        # Return simplified response for frontend
+        return {
+            "message": "Post liked" if result.get("added") else "Post unliked",
+            "is_liked": result.get("added", False),
+            "like_count": result.get("total_reactions", 0)
+        }
+    except Exception as e:
+        print(f"❌ Like endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to like post: {str(e)}")
+
+@router.post("/posts/{post_id}/comments", response_model=CommentResponse, tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def add_comment_to_post(
+    post_id: str, 
+    comment_data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Add a comment to a post
+    
+    🔐 Requires Authentication
+    """
+    print(f"🔍 Comment endpoint called for post: {post_id} by user: {current_user.get('_id')}")
+    try:
+        content = comment_data.get("content", "")
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="Comment content is required")
+        
+        # Create comment using the existing function
+        comment = await create_comment(post_id, current_user, content)
+        print(f"🔍 Comment created: {comment.id}")
+        return comment
+    except Exception as e:
+        print(f"❌ Comment endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
+
+@router.post("/posts/{post_id}/bookmark", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def bookmark_post(post_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Bookmark/Unbookmark a post (toggle)
+    
+    🔐 Requires Authentication
+    """
+    print(f"🔍 Bookmark endpoint called for post: {post_id} by user: {current_user.get('_id')}")
+    try:
+        # Check if already bookmarked
+        is_bookmarked = await check_bookmark_status(str(current_user["_id"]), post_id)
+        
+        if is_bookmarked:
+            # Remove bookmark
+            await remove_bookmark(str(current_user["_id"]), post_id)
+            return {"message": "Bookmark removed", "is_bookmarked": False}
+        else:
+            # Add bookmark
+            await add_bookmark(str(current_user["_id"]), post_id)
+            return {"message": "Post bookmarked", "is_bookmarked": True}
+    except Exception as e:
+        print(f"❌ Bookmark endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to bookmark post: {str(e)}")
+
+@router.post("/posts/{post_id}/share", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def share_post(
+    post_id: str, 
+    share_data: dict = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Share a post
+    
+    🔐 Requires Authentication
+    """
+    print(f"🔍 Share endpoint called for post: {post_id} by user: {current_user.get('_id')}")
+    try:
+        content = share_data.get("content", "") if share_data else ""
+        
+        # Create share using the existing function
+        share = await share_post(str(current_user["_id"]), post_id, content)
+        
+        # Get updated share count (this would need to be implemented in the share service)
+        share_count = 1  # Placeholder - you'd need to implement getting actual count
+        
+        return {
+            "message": "Post shared successfully",
+            "share_count": share_count
+        }
+    except Exception as e:
+        print(f"❌ Share endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to share post: {str(e)}")
 
 @router.post("/posts/{post_id}/pin", tags=["Posts"])
 @require_authentication

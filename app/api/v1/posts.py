@@ -163,16 +163,22 @@ async def get_user_posts_logic(
         raise HTTPException(status_code=500, detail="Failed to get user posts")
 
 async def get_feed_logic(
-    page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=100, description="Posts per page"),
-    current_user: dict = Depends(get_current_user)
+    page: int,
+    per_page: int,
+    current_user: dict
 ) -> PostListResponse:
     """Get personalized feed for user"""
     try:
-        return await post_service.get_feed(str(current_user["_id"]), page, per_page)
+        print(f"🔍 get_feed_logic called - User ID: {current_user.get('_id')}, Page: {page}, Per Page: {per_page}")
+        print(f"🔍 Current user keys: {list(current_user.keys())}")
+        result = await post_service.get_feed(str(current_user["_id"]), page, per_page)
+        print(f"🔍 Feed result - Total posts: {result.total}, Current page: {result.page}")
+        return result
     except UnauthorizedError as e:
+        print(f"❌ UnauthorizedError in get_feed_logic: {str(e)}")
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
+        print(f"❌ Exception in get_feed_logic: {str(e)} - Type: {type(e)}")
         raise HTTPException(status_code=500, detail="Failed to get feed")
 
 async def pin_post_logic(
@@ -279,20 +285,34 @@ async def get_trending_posts_logic(
         limit_val = limit if isinstance(limit, int) else limit.default  
         hours_val = hours if isinstance(hours, int) else hours.default
         
-        print(f"[DEBUG] get_trending_posts_logic called with page={page_val}, limit={limit_val}, hours={hours_val}")
+        print(f"🔍 get_trending_posts_logic called with page={page_val}, limit={limit_val}, hours={hours_val}")
         
         # Calculate skip value for pagination
         skip = (page_val - 1) * limit_val
+        print(f"🔍 Calculated skip: {skip}")
         
         # Get trending posts with pagination
         posts, total = await post_service.get_trending_posts_paginated(hours_val, limit_val, skip)
-        print(f"[DEBUG] get_trending_posts returned {len(posts) if posts else 0} posts, total={total}")
+        print(f"🔍 get_trending_posts returned {len(posts) if posts else 0} posts, total={total}")
+        
+        # Debug: Check if posts have the right structure
+        if posts:
+            sample_post = posts[0] if len(posts) > 0 else None
+            if sample_post:
+                if isinstance(sample_post, dict):
+                    print(f"🔍 Sample post keys: {list(sample_post.keys())}")
+                    print(f"🔍 Sample post id field: {sample_post.get('_id', 'NO _id')} | {sample_post.get('id', 'NO id')}")
+                else:
+                    print(f"🔍 Sample post type: {type(sample_post)}")
+                    print(f"🔍 Sample post has id: {hasattr(sample_post, 'id')}")
+                    if hasattr(sample_post, 'id'):
+                        print(f"🔍 Sample post id: {sample_post.id}")
         
         # Calculate pagination info
         has_next = (skip + len(posts)) < total
         has_prev = page_val > 1
         
-        return PostListResponse(
+        result = PostListResponse(
             posts=posts,
             total=total,
             page=page_val,
@@ -300,11 +320,13 @@ async def get_trending_posts_logic(
             has_next=has_next,
             has_prev=has_prev
         )
+        print(f"🔍 Returning PostListResponse with {len(result.posts)} posts")
+        return result
     except Exception as e:
         # Log the actual error for debugging
-        print(f"[DEBUG] Error in get_trending_posts_logic: {type(e).__name__}: {str(e)}")
+        print(f"❌ Error in get_trending_posts_logic: {type(e).__name__}: {str(e)}")
         import traceback
-        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+        print(f"❌ Traceback: {traceback.format_exc()}")
         # Return empty result instead of failing
         return PostListResponse(
             posts=[],
