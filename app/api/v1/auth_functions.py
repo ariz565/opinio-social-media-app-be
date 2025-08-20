@@ -15,7 +15,7 @@ from app.database.mongo_connection import get_database
 from app.models.user import update_user
 from app.schemas.user import (
     UserRegistration, UserLogin, EmailVerification, RefreshToken,
-    PasswordResetRequest, PasswordResetVerify
+    PasswordResetRequest, PasswordResetVerify, EmailRequest
 )
 from app.utils.validators import sanitize_input_dict
 
@@ -48,7 +48,7 @@ async def register_new_user_logic(user_data: UserRegistration):
 
 
 async def login_user_logic(login_data: UserLogin):
-    """Business logic for user login"""
+    """Business logic for user login - REGULAR USERS ONLY"""
     try:
         # Get database directly with retry logic
         try:
@@ -220,7 +220,7 @@ async def verify_email_logic(verification_data: EmailVerification):
         )
 
 
-async def resend_verification_logic(email_data: EmailVerification):
+async def resend_verification_logic(email_data: EmailRequest):
     """Business logic for resending verification email"""
     try:
         # Get database

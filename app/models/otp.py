@@ -88,3 +88,19 @@ async def get_valid_otp(db, email, otp_type=OTP_TYPE_EMAIL_VERIFICATION):
         "is_used": False,
         "expires_at": {"$gt": current_time}
     })
+
+async def get_latest_otp(db, email, otp_type=OTP_TYPE_EMAIL_VERIFICATION):
+    """Get the latest OTP code for testing purposes"""
+    current_time = datetime.utcnow()
+    
+    otp_doc = await db.otps.find_one(
+        {
+            "email": email.lower(),
+            "otp_type": otp_type,
+            "is_used": False,
+            "expires_at": {"$gt": current_time}
+        },
+        sort=[("created_at", -1)]  # Get the most recent one
+    )
+    
+    return otp_doc["otp_code"] if otp_doc else None

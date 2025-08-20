@@ -12,28 +12,34 @@ from app.api.v1.user_functions import (
 )
 from app.schemas.user import (
     UserRegistration, UserLogin, EmailVerification, RefreshToken,
-    PasswordResetRequest, PasswordResetVerify
+    PasswordResetRequest, PasswordResetVerify, EmailRequest
 )
 from app.config import get_settings
 
 # Get settings
 settings = get_settings()
 
-# Create main API router
+# Create main API router - Regular Users Only
 router = APIRouter()
 
 # =============================================================================
-# AUTHENTICATION ROUTES
+# AUTHENTICATION ROUTES (Regular Users Only)
 # =============================================================================
 
 @router.post("/auth/register", status_code=status.HTTP_201_CREATED)
 async def register_new_user(user_data: UserRegistration):
-    """Register a new user"""
+    """
+    Register a new user (Regular users only)
+    
+    This endpoint only creates regular users with 'user' role.
+    Any attempt to inject role, status, or privilege fields will be rejected.
+    """
     return await register_new_user_logic(user_data)
 
 @router.post("/auth/login")
 async def login_user(login_data: UserLogin):
-    """Login user and get access token
+    """
+    Login user and get access token (Regular users only)
     
     For first-time users (email not verified): Provide email, password, and otp_code
     For returning users (email verified): Provide only email and password
@@ -51,9 +57,9 @@ async def verify_email(verification_data: EmailVerification):
     return await verify_email_logic(verification_data)
 
 @router.post("/auth/resend-verification")
-async def resend_verification_email(request: Request):
+async def resend_verification_email(email_data: EmailRequest):
     """Resend verification email"""
-    return await resend_verification_logic(request)
+    return await resend_verification_logic(email_data)
 
 @router.post("/auth/forgot-password")
 async def forgot_password(reset_data: PasswordResetRequest):

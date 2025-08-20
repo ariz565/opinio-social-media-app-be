@@ -2,22 +2,14 @@ from datetime import datetime
 from bson import ObjectId
 from typing import Optional
 
-# User role constants
+# User role constants - Only regular users
 USER_ROLE_USER = "user"
-USER_ROLE_ADMIN = "admin"
-USER_ROLE_MODERATOR = "moderator"
 
 # User status constants
 USER_STATUS_ACTIVE = "active"
 USER_STATUS_INACTIVE = "inactive"
 USER_STATUS_SUSPENDED = "suspended"
 USER_STATUS_DELETED = "deleted"
-
-async def get_user_by_google_id(db, google_id):
-    """Get user by Google ID"""
-    if not google_id:
-        return None
-    return await db.users.find_one({"google_id": google_id})
 
 async def get_user_by_email(db, email):
     """Get user by email"""

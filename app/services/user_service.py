@@ -5,7 +5,10 @@ from datetime import datetime
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token, decode_token
 from app.models.user import (
     get_user_by_email, get_user_by_username, create_user, get_user_by_id, 
-    update_last_login, check_user_exists, update_user, get_user_by_google_id
+    update_last_login, check_user_exists, update_user
+)
+from app.models.account import (
+    get_account_by_provider_id, create_account, update_account_last_login
 )
 from app.models.otp import create_otp, verify_otp, OTP_TYPE_EMAIL_VERIFICATION
 from app.services.email_service import email_service
@@ -19,14 +22,28 @@ from app.config import get_settings
 settings = get_settings()
 
 async def register_user(db, user_data):
-    """Register a new user with validation"""
+    """Register a new user with validation - SECURE: Only allows regular user role"""
     # Sanitize inputs
     sanitized_data = sanitize_input_dict(user_data)
+    
+    # SECURITY: Remove any role/status/privilege fields that users might try to inject
+    # Only allow specific safe fields for regular user registration
+    allowed_fields = {
+        'email', 'username', 'password', 'full_name', 'bio', 'profile_picture'
+    }
+    sanitized_data = {k: v for k, v in sanitized_data.items() if k in allowed_fields}
     
     email = sanitized_data.get("email", "").strip().lower()
     username = sanitized_data.get("username", "").strip().lower()
     password = sanitized_data.get("password", "")
     full_name = sanitized_data.get("full_name", "").strip()
+    
+    # SECURITY: Explicitly check for role injection attempts
+    if 'role' in user_data or 'status' in user_data or 'email_verified' in user_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid registration data - privilege escalation attempt detected"
+        )
     
     # Validate inputs
     if not validate_email(email):
@@ -338,59 +355,50 @@ async def create_or_get_google_user(db, google_user_info):
         email = google_user_info.get("email")
         google_id = google_user_info.get("google_id")
         
-        # Check if user exists by Google ID
-        existing_user = await get_user_by_google_id(db, google_id)
-        if existing_user:
+        # Check if account exists by Google ID
+        existing_account = await get_account_by_provider_id(db, "google", google_id)
+        if existing_account:
             # Update last login
-            await update_last_login(db, existing_user["_id"])
-            # Remove password from response and serialize
-            existing_user.pop("password", None)
-            return serialize_user(existing_user)
+            await update_account_last_login(db, existing_account["_id"])
+            return existing_account
         
-        # Check if user exists by email
+        # Check if regular user exists by email
         existing_user = await get_user_by_email(db, email)
         if existing_user:
-            # Link Google account to existing user
-            await update_user(db, existing_user["_id"], {
-                "google_id": google_id,
-                "auth_provider": "google"
-            })
-            # Update last login
-            await update_last_login(db, existing_user["_id"])
-            # Remove password from response and serialize
-            existing_user.pop("password", None)
-            return serialize_user(existing_user)
+            # Create linked Google account for existing user
+            account_data = {
+                "email": email,
+                "full_name": google_user_info.get("name", ""),
+                "provider": "google",
+                "provider_id": google_id,
+                "profile_picture": google_user_info.get("picture"),
+                "linked_user_id": existing_user["_id"],
+                "provider_data": google_user_info
+            }
+            created_account = await create_account(db, account_data)
+            return created_account
         
-        # Create new user
-        # Generate username from email
-        username = email.split("@")[0]
-        username_counter = 1
-        
-        # Ensure username is unique
-        while await get_user_by_username(db, username):
-            username = f"{email.split('@')[0]}{username_counter}"
-            username_counter += 1
-        
-        user_data = {
+        # Create new standalone Google account (not linked to any user)
+        account_data = {
             "email": email,
-            "username": username,
-            "full_name": google_user_info.get("full_name", ""),
-            "profile_picture": google_user_info.get("profile_picture"),
-            "email_verified": google_user_info.get("email_verified", False),
-            "auth_provider": "google",
-            "google_id": google_id
+            "full_name": google_user_info.get("name", ""),
+            "provider": "google",
+            "provider_id": google_id,
+            "profile_picture": google_user_info.get("picture"),
+            "provider_data": google_user_info,
+            "linked_user_id": None  # Standalone OAuth account
         }
         
-        # Create user
-        created_user = await create_user(db, user_data)
+        # Create account
+        created_account = await create_account(db, account_data)
         
-        if not created_user:
+        if not created_account:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user"
+                detail="Failed to create account"
             )
         
-        return serialize_user(created_user)
+        return created_account
     
     except HTTPException:
         raise

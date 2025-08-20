@@ -92,6 +92,11 @@ class EmailVerification(BaseModel):
     otp_code: str
 
 
+class EmailRequest(BaseModel):
+    """Schema for email-only requests (resend verification, etc.)"""
+    email: EmailStr
+
+
 class RefreshToken(BaseModel):
     """Schema for token refresh"""
     refresh_token: str

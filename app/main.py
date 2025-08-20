@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.routes import router
+from app.admin.routes import router as admin_router
 from app.database.mongo_connection import connect_to_mongo, close_mongo_connection
 from app.config import get_settings
 from app.core.middleware import LoggingMiddleware, RateLimitMiddleware
@@ -52,6 +53,7 @@ app.add_middleware(LoggingMiddleware)
 
 # Include routes
 app.include_router(router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

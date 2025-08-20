@@ -6,6 +6,8 @@ from app.services.user_service import (
     refresh_user_token, get_user_profile, verify_email_otp, resend_verification_otp,
     create_or_get_google_user
 )
+from app.schemas.user import AdminUserCreation, AdminUserResponse
+from app.api.v1.auth_functions import create_admin_user_logic
 # Temporarily commented out for testing
 # from app.services.google_oauth_service import google_oauth_service
 from app.core.auth import get_current_active_user
@@ -236,6 +238,32 @@ async def resend_verification_email(request: Request, db = Depends(get_database)
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to resend verification email"
         )
+
+
+@router.post("/create-admin", response_model=AdminUserResponse, status_code=status.HTTP_201_CREATED)
+async def create_admin_user(admin_data: AdminUserCreation):
+    """
+    Create an admin user with admin secret key
+    
+    This endpoint allows creation of admin users by providing the correct admin secret key.
+    Admin users have elevated privileges and can access all application functionality.
+    
+    Required fields:
+    - admin_secret: The secret key from environment variable ADMIN_SECRET
+    - email: Valid email address for the admin user
+    - username: Unique username (3-20 characters, alphanumeric with underscores)
+    - password: Strong password (8+ chars, uppercase, lowercase, number)
+    - full_name: Admin user's full name
+    - bio: Optional bio (defaults to "System Administrator")
+    
+    Security considerations:
+    - Admin secret must match exactly with ADMIN_SECRET environment variable
+    - All user validation rules apply (email format, username uniqueness, password strength)
+    - Admin users are automatically email verified
+    - Admin role grants access to all system functionality
+    """
+    return await create_admin_user_logic(admin_data)
+
 
 # Google OAuth endpoints - temporarily commented out for testing
 """

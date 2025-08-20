@@ -43,25 +43,3 @@ async def get_current_active_user(current_user = Depends(get_current_user)):
             detail="Inactive user account"
         )
     return current_user
-
-async def get_current_admin_user(current_user = Depends(get_current_active_user)):
-    """
-    Get the current admin user
-    """
-    if current_user.get("role") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-    return current_user
-
-async def get_current_moderator_user(current_user = Depends(get_current_active_user)):
-    """
-    Get the current moderator or admin user
-    """
-    if current_user.get("role") not in ["admin", "moderator"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Moderator or admin access required"
-        )
-    return current_user
