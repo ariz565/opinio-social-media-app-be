@@ -117,12 +117,31 @@ class Post:
         
         # Use aggregation pipeline to include author information
         pipeline = [
-            # Match posts from followed users + own posts
+            # Match posts with proper visibility logic
             {
                 "$match": {
-                    "user_id": {"$in": following_object_ids},
-                    "status": POST_STATUS_PUBLISHED,
-                    "visibility": {"$in": [POST_VISIBILITY_PUBLIC, POST_VISIBILITY_FOLLOWERS]}
+                    "$and": [
+                        {"user_id": {"$in": following_object_ids}},
+                        {"status": POST_STATUS_PUBLISHED},
+                        {
+                            "$or": [
+                                # User's own posts - show all visibility levels except private
+                                {
+                                    "$and": [
+                                        {"user_id": ObjectId(user_id)},
+                                        {"visibility": {"$ne": POST_VISIBILITY_PRIVATE}}
+                                    ]
+                                },
+                                # Other users' posts - only public and followers-only
+                                {
+                                    "$and": [
+                                        {"user_id": {"$ne": ObjectId(user_id)}},
+                                        {"visibility": {"$in": [POST_VISIBILITY_PUBLIC, POST_VISIBILITY_FOLLOWERS]}}
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
                 }
             },
             # Sort by creation date (newest first)

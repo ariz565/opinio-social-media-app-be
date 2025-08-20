@@ -506,38 +506,82 @@ async def upload_post_media_logic(
         raise HTTPException(status_code=500, detail="Failed to upload media to post")
 
 async def create_post_with_media_logic(
-    content: str = Body(...),
-    post_type: str = Body(default="text"),
-    visibility: str = Body(default="public"),
-    files: List[UploadFile] = File(default=[]),
-    current_user: dict = Depends(get_current_user)
+    request: Request
 ) -> PostResponse:
     """Create a new post with media files"""
     try:
+        # Get current user
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required"
+            )
+        
+        token = auth_header.split(" ")[1]
+        db = await get_database()
+        current_user = await get_current_user_from_token(db, token)
+        
+        # Get user_id from serialized user object
+        user_id = current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user session")
+        
+        # Parse multipart form data
+        form = await request.form()
+        
+        # Extract text fields
+        content = form.get("content", "")
+        post_type = form.get("post_type", "text")
+        visibility = form.get("visibility", "public")
+        allow_comments = form.get("allow_comments", "true").lower() == "true"
+        allow_shares = form.get("allow_shares", "true").lower() == "true"
+        
+        # Extract files
+        files = form.getlist("files")
+        
         # First upload media if provided
         media_data = []
         if files:
             media_data = await post_service.upload_post_media(
                 files=files,
-                user_id=str(current_user["_id"])
+                user_id=str(user_id)
             )
         
         # Create post data
         from app.schemas.post import MediaItem
-        media_items = [MediaItem(**media) for media in media_data]
+        media_items = []
+        for media in media_data:
+            # Map cloudinary response to MediaItem schema
+            media_item_data = {
+                "url": media["url"],
+                "type": media["type"],
+                "thumbnail_url": media.get("thumbnail_url"),
+                "width": media.get("width"),
+                "height": media.get("height"),
+                "size": media.get("size"),
+                "duration": media.get("duration")
+            }
+            media_items.append(MediaItem(**media_item_data))
         
         post_data = PostCreate(
             content=content,
             post_type=post_type,
             visibility=visibility,
-            media=media_items
+            media=media_items,
+            allow_comments=allow_comments,
+            allow_shares=allow_shares
         )
         
         # Create post
-        return await post_service.create_post(str(current_user["_id"]), post_data)
+        result = await post_service.create_post(str(user_id), post_data)
+        return result
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ContentModerationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"[ERROR] Exception in create_post_with_media_logic: {e}")
+        import traceback
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to create post with media")

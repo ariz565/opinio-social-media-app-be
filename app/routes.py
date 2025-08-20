@@ -617,7 +617,7 @@ async def upload_post_media(post_id: str):
 @router.post("/posts/with-media", response_model=PostResponse, status_code=status.HTTP_201_CREATED, tags=["Posts"])
 @require_authentication
 @log_endpoint_access
-async def create_post_with_media():
+async def create_post_with_media(request: Request):
     """
     Create a new post with media files
     
@@ -626,7 +626,7 @@ async def create_post_with_media():
     
     🔐 Requires Authentication
     """
-    return await create_post_with_media_logic()
+    return await create_post_with_media_logic(request)
 
 # =============================================================================
 # AUTHENTICATION ROUTES - MOVED TO auth.py

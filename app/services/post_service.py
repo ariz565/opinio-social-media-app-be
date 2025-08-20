@@ -592,7 +592,7 @@ class PostService:
         usernames = re.findall(mention_pattern, content)
         
         # Get database instance
-        db = get_database()
+        db = await get_database()
         
         # Validate that mentioned users exist
         valid_mentions = []
@@ -632,7 +632,7 @@ class PostService:
             return False
         
         # Get database instance
-        db = get_database()
+        db = await get_database()
         
         if visibility == "followers":
             # Check if requesting user follows the post author
