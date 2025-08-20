@@ -202,7 +202,7 @@ async def health_check():
 @router.post("/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED, tags=["Posts"])
 @require_authentication
 @log_endpoint_access
-async def create_post(post_data: PostCreate):
+async def create_post(post_data: PostCreate, request: Request):
     """
     Create a new post
     
@@ -217,7 +217,7 @@ async def create_post(post_data: PostCreate):
     
     🔐 Requires Authentication
     """
-    return await create_post_logic(post_data)
+    return await create_post_logic(post_data, request)
 
 @router.post("/posts/drafts", response_model=PostResponse, status_code=status.HTTP_201_CREATED, tags=["Posts"])
 @require_authentication
@@ -272,6 +272,15 @@ async def delete_post(post_id: str, permanent: bool = False):
     🔐 Requires Authentication
     """
     return await delete_post_logic(post_id, permanent)
+
+@router.get("/posts/trending", response_model=List[PostResponse], tags=["Posts"])
+async def get_trending_posts(hours: int = 24, limit: int = 50):
+    """
+    Get trending posts based on engagement
+    
+    Algorithm considers likes, comments, shares, and views
+    """
+    return await get_trending_posts_logic(hours, limit)
 
 @router.get("/posts/{post_id}", response_model=PostResponse, tags=["Posts"])
 async def get_post(post_id: str):
@@ -372,15 +381,6 @@ async def search_posts(
         query, post_type, hashtags, location, date_from, date_to,
         sort_by, sort_order, page, per_page
     )
-
-@router.get("/posts/trending", response_model=List[PostResponse], tags=["Posts"])
-async def get_trending_posts(hours: int = 24, limit: int = 50):
-    """
-    Get trending posts based on engagement
-    
-    Algorithm considers likes, comments, shares, and views
-    """
-    return await get_trending_posts_logic(hours, limit)
 
 @router.post("/posts/{post_id}/vote", response_model=PostResponse, tags=["Posts"])
 @require_authentication

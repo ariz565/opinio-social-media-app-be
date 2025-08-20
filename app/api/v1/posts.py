@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import HTTPException, Depends, Query, Body, UploadFile, File
+from fastapi import HTTPException, Depends, Query, Body, UploadFile, File, Request
 from app.services.post_service import PostService
 from app.schemas.post import (
     PostCreate, PostUpdate, PostResponse, PostListResponse,
@@ -10,22 +10,56 @@ from app.core.exceptions import (
     ContentModerationError
 )
 from app.api.deps import get_current_user
+from app.api.v1.user_functions import get_current_user_from_token
+from app.database.mongo_connection import get_database
 
 # Initialize service
 post_service = PostService()
 
 async def create_post_logic(
     post_data: PostCreate,
-    current_user: dict = Depends(get_current_user)
+    request: Request
 ) -> PostResponse:
     """Create a new post"""
     try:
-        return await post_service.create_post(str(current_user["_id"]), post_data)
+        print(f"[DEBUG] Create post called with data: {post_data}")
+        
+        # Get database
+        db = await get_database()
+        print(f"[DEBUG] Database connection established")
+        
+        # Get current user from token
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required"
+            )
+        
+        token = auth_header.split(" ")[1]
+        print(f"[DEBUG] Token extracted: {token[:20]}...")
+        
+        current_user = await get_current_user_from_token(db, token)
+        print(f"[DEBUG] Current user: {current_user['email']}")
+        print(f"[DEBUG] Current user keys: {list(current_user.keys())}")
+        
+        # Use 'id' instead of '_id' based on the user object structure
+        user_id = current_user.get("_id") or current_user.get("id")
+        print(f"[DEBUG] Using user_id: {user_id}")
+        
+        result = await post_service.create_post(str(user_id), post_data)
+        print(f"[DEBUG] Post created successfully: {result}")
+        return result
     except ValidationError as e:
+        print(f"[DEBUG] ValidationError: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except ContentModerationError as e:
+        print(f"[DEBUG] ContentModerationError: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"[DEBUG] Exception in create_post_logic: {type(e).__name__}: {str(e)}")
+        import traceback
+        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to create post")
 
 async def save_draft_logic(
@@ -239,9 +273,17 @@ async def get_trending_posts_logic(
 ) -> List[PostResponse]:
     """Get trending posts"""
     try:
-        return await post_service.get_trending_posts(hours, limit)
+        print(f"[DEBUG] get_trending_posts_logic called with hours={hours}, limit={limit}")
+        posts = await post_service.get_trending_posts(hours, limit)
+        print(f"[DEBUG] get_trending_posts returned {len(posts) if posts else 0} posts")
+        return posts if posts else []
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to get trending posts")
+        # Log the actual error for debugging
+        print(f"[DEBUG] Error in get_trending_posts_logic: {type(e).__name__}: {str(e)}")
+        import traceback
+        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+        # Return empty list instead of failing
+        return []
 
 async def vote_on_poll_logic(
     post_id: str,

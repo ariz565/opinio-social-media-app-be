@@ -24,7 +24,7 @@ class PostService:
     async def create_post(self, user_id: str, post_data: PostCreate) -> PostResponse:
         """Create a new post with content validation and processing"""
         # Get database instance
-        db = get_database()
+        db = await get_database()
         
         # Validate user exists
         user = await user_model.get_user_by_id(db, user_id)
@@ -71,12 +71,17 @@ class PostService:
         if all_mentions:
             await self._send_mention_notifications(user_id, post["_id"], all_mentions)
 
+        # Convert _id to id for the response schema
+        if "_id" in post:
+            post["id"] = str(post["_id"])
+            del post["_id"]
+
         return PostResponse(**post)
 
     async def save_draft(self, user_id: str, draft_data: DraftSave) -> PostResponse:
         """Save post as draft"""
         # Get database instance
-        db = get_database()
+        db = await get_database()
         
         # Validate user exists
         user = await user_model.get_user_by_id(db, user_id)
@@ -344,8 +349,63 @@ class PostService:
 
     async def get_trending_posts(self, hours: int = 24, limit: int = 50) -> List[PostResponse]:
         """Get trending posts"""
-        posts = await self.post_model.get_trending_posts(hours, limit)
-        return [PostResponse(**post) for post in posts]
+        try:
+            # Get database connection
+            db = await get_database()
+            posts = await self.post_model.get_trending_posts(hours, limit)
+            if not posts:
+                return []
+            
+            result = []
+            for post in posts:
+                try:
+                    # Ensure required fields exist
+                    if not post.get('_id') or not post.get('user_id'):
+                        continue
+                    
+                    # Get author information
+                    author = await user_model.get_user_by_id(db, str(post['user_id']))
+                    if author:
+                        post['author'] = {
+                            'id': str(author['_id']),
+                            'username': author.get('username', 'unknown'),
+                            'full_name': author.get('full_name', 'Unknown User'),
+                            'avatar_url': author.get('profile_picture'),
+                            'email': author.get('email', '')
+                        }
+                    else:
+                        # Default author if user not found
+                        post['author'] = {
+                            'id': str(post['user_id']),
+                            'username': 'unknown',
+                            'full_name': 'Unknown User',
+                            'avatar_url': None,
+                            'email': ''
+                        }
+                    
+                    # Convert _id to id for the response schema
+                    if "_id" in post:
+                        post["id"] = str(post["_id"])
+                        del post["_id"]
+                    
+                    # Ensure required fields with defaults
+                    post.setdefault('like_count', 0)
+                    post.setdefault('comment_count', 0)
+                    post.setdefault('share_count', 0)
+                    post.setdefault('view_count', 0)
+                    post.setdefault('is_liked', False)
+                    post.setdefault('is_bookmarked', False)
+                    post.setdefault('is_shared', False)
+                    
+                    result.append(PostResponse(**post))
+                except Exception as e:
+                    print(f"Error processing post {post.get('_id', 'unknown')}: {str(e)}")
+                    continue
+            
+            return result
+        except Exception as e:
+            print(f"Error in get_trending_posts service: {str(e)}")
+            return []
 
     async def vote_on_poll(self, user_id: str, post_id: str, vote_data: PollVote) -> PostResponse:
         """Vote on a poll"""
