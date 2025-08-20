@@ -3,6 +3,15 @@ from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field, validator
 from bson import ObjectId
 
+# Author schema for posts
+class Author(BaseModel):
+    """Schema for post author information"""
+    id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    full_name: str = Field(..., description="Full name")
+    avatar_url: Optional[str] = Field(None, description="Avatar URL")
+    email: str = Field(..., description="Email address")
+
 # Enums for validation
 POST_TYPES = ["text", "image", "video", "gif", "poll"]
 POST_STATUSES = ["draft", "published", "scheduled", "archived"]
@@ -194,6 +203,9 @@ class PostResponse(BaseModel):
     scheduled_for: Optional[datetime] = Field(None)
     pinned_at: Optional[datetime] = Field(None)
     archived_at: Optional[datetime] = Field(None)
+    
+    # Author information
+    author: Optional[Author] = Field(None, description="Post author information")
 
     class Config:
         json_encoders = {

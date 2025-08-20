@@ -268,22 +268,52 @@ async def search_posts_logic(
         raise HTTPException(status_code=500, detail="Failed to search posts")
 
 async def get_trending_posts_logic(
-    hours: int = Query(24, ge=1, le=168, description="Hours to look back for trending"),
-    limit: int = Query(50, ge=1, le=100, description="Maximum number of posts")
-) -> List[PostResponse]:
-    """Get trending posts"""
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=50, description="Posts per page"),
+    hours: int = Query(24, ge=1, le=168, description="Hours to look back for trending")
+) -> PostListResponse:
+    """Get trending posts with pagination"""
     try:
-        print(f"[DEBUG] get_trending_posts_logic called with hours={hours}, limit={limit}")
-        posts = await post_service.get_trending_posts(hours, limit)
-        print(f"[DEBUG] get_trending_posts returned {len(posts) if posts else 0} posts")
-        return posts if posts else []
+        # Convert Query objects to actual values if needed
+        page_val = page if isinstance(page, int) else page.default
+        limit_val = limit if isinstance(limit, int) else limit.default  
+        hours_val = hours if isinstance(hours, int) else hours.default
+        
+        print(f"[DEBUG] get_trending_posts_logic called with page={page_val}, limit={limit_val}, hours={hours_val}")
+        
+        # Calculate skip value for pagination
+        skip = (page_val - 1) * limit_val
+        
+        # Get trending posts with pagination
+        posts, total = await post_service.get_trending_posts_paginated(hours_val, limit_val, skip)
+        print(f"[DEBUG] get_trending_posts returned {len(posts) if posts else 0} posts, total={total}")
+        
+        # Calculate pagination info
+        has_next = (skip + len(posts)) < total
+        has_prev = page_val > 1
+        
+        return PostListResponse(
+            posts=posts,
+            total=total,
+            page=page_val,
+            per_page=limit_val,
+            has_next=has_next,
+            has_prev=has_prev
+        )
     except Exception as e:
         # Log the actual error for debugging
         print(f"[DEBUG] Error in get_trending_posts_logic: {type(e).__name__}: {str(e)}")
         import traceback
         print(f"[DEBUG] Traceback: {traceback.format_exc()}")
-        # Return empty list instead of failing
-        return []
+        # Return empty result instead of failing
+        return PostListResponse(
+            posts=[],
+            total=0,
+            page=page_val,
+            per_page=limit_val,
+            has_next=False,
+            has_prev=False
+        )
 
 async def vote_on_poll_logic(
     post_id: str,

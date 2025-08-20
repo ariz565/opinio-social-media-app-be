@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from app.database.mongo_connection import get_database
@@ -327,9 +327,31 @@ class Post:
             posts.append(post)
         return posts
 
-    async def get_trending_posts(self, hours: int = 24, limit: int = 50) -> List[dict]:
-        """Get trending posts based on recent engagement"""
-        since_time = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour - hours)
+    async def get_trending_posts_count(self, hours: int = 24) -> int:
+        """Get total count of trending posts"""
+        collection = await self._get_collection()
+        since_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+        
+        # Count posts in the time window
+        count = await collection.count_documents({
+            "status": POST_STATUS_PUBLISHED,
+            "visibility": POST_VISIBILITY_PUBLIC,
+            "created_at": {"$gte": since_time}
+        })
+        
+        # If no posts in time window, count all public posts
+        if count == 0:
+            count = await collection.count_documents({
+                "status": POST_STATUS_PUBLISHED,
+                "visibility": POST_VISIBILITY_PUBLIC
+            })
+        
+        return count
+
+    async def get_trending_posts_paginated(self, hours: int = 24, limit: int = 20, skip: int = 0) -> List[dict]:
+        """Get trending posts with pagination"""
+        collection = await self._get_collection()
+        since_time = datetime.now(timezone.utc) - timedelta(hours=hours)
         
         pipeline = [
             {
@@ -351,13 +373,262 @@ class Post:
                     }
                 }
             },
-            {"$sort": {"trend_score": -1}},
+            # Join with users collection to get author data
+            {
+                "$addFields": {
+                    "user_id_obj": {"$toObjectId": "$user_id"}
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "users",
+                    "localField": "user_id_obj",
+                    "foreignField": "_id",
+                    "as": "author_data"
+                }
+            },
+            {
+                "$addFields": {
+                    "author": {
+                        "$cond": {
+                            "if": {"$gt": [{"$size": "$author_data"}, 0]},
+                            "then": {
+                                "id": {"$toString": {"$arrayElemAt": ["$author_data._id", 0]}},
+                                "username": {"$arrayElemAt": ["$author_data.username", 0]},
+                                "full_name": {"$arrayElemAt": ["$author_data.full_name", 0]},
+                                "avatar_url": {"$arrayElemAt": ["$author_data.avatar_url", 0]},
+                                "email": {"$arrayElemAt": ["$author_data.email", 0]}
+                            },
+                            "else": {
+                                "id": {"$toString": "$user_id"},
+                                "username": "unknown",
+                                "full_name": "Unknown User",
+                                "email": ""
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "$unset": ["author_data", "user_id_obj"]  # Remove only the temporary lookup fields, keep author
+            },
+            {
+                "$sort": {
+                    "trend_score": -1,  # Primary sort by engagement
+                    "created_at": -1    # Secondary sort by recency (for posts with same engagement)
+                }
+            },
+            {"$skip": skip},
             {"$limit": limit}
         ]
         
         posts = []
-        async for post in self.collection.aggregate(pipeline):
+        async for post in collection.aggregate(pipeline):
             post["_id"] = str(post["_id"])
             post["user_id"] = str(post["user_id"])
             posts.append(post)
+            
+        # If no posts found in the time window, use fallback pipeline
+        if not posts and skip == 0:  # Only fallback on first page
+            print(f"No posts found in last {hours} hours, getting all recent public posts")
+            fallback_pipeline = [
+                {
+                    "$match": {
+                        "status": POST_STATUS_PUBLISHED,
+                        "visibility": POST_VISIBILITY_PUBLIC
+                    }
+                },
+                # Join with users collection for fallback too
+                {
+                    "$addFields": {
+                        "user_id_obj": {"$toObjectId": "$user_id"}
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "user_id_obj",
+                        "foreignField": "_id",
+                        "as": "author_data"
+                    }
+                },
+                {
+                    "$addFields": {
+                        "author": {
+                            "$cond": {
+                                "if": {"$gt": [{"$size": "$author_data"}, 0]},
+                                "then": {
+                                    "id": {"$toString": {"$arrayElemAt": ["$author_data._id", 0]}},
+                                    "username": {"$arrayElemAt": ["$author_data.username", 0]},
+                                    "full_name": {"$arrayElemAt": ["$author_data.full_name", 0]},
+                                    "avatar_url": {"$arrayElemAt": ["$author_data.avatar_url", 0]},
+                                    "email": {"$arrayElemAt": ["$author_data.email", 0]}
+                                },
+                                "else": {
+                                    "id": {"$toString": "$user_id"},
+                                    "username": "unknown",
+                                    "full_name": "Unknown User",
+                                    "email": ""
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$unset": ["author_data", "user_id_obj"]  # Remove only the temporary lookup fields, keep author
+                },
+                {
+                    "$sort": {"created_at": -1}  # Most recent first
+                },
+                {"$skip": skip},
+                {"$limit": limit}
+            ]
+            
+            async for post in collection.aggregate(fallback_pipeline):
+                post["_id"] = str(post["_id"])
+                post["user_id"] = str(post["user_id"])
+                posts.append(post)
+        
+        return posts
+
+    async def get_trending_posts(self, hours: int = 24, limit: int = 50) -> List[dict]:
+        """Get trending posts based on recent engagement and recency"""
+        collection = await self._get_collection()
+        # Fix: Use timedelta to properly subtract hours
+        since_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+        
+        pipeline = [
+            {
+                "$match": {
+                    "status": POST_STATUS_PUBLISHED,
+                    "visibility": POST_VISIBILITY_PUBLIC,
+                    "created_at": {"$gte": since_time}
+                }
+            },
+            {
+                "$addFields": {
+                    "trend_score": {
+                        "$add": [
+                            {"$multiply": ["$engagement_stats.likes_count", 1]},
+                            {"$multiply": ["$engagement_stats.comments_count", 2]},
+                            {"$multiply": ["$engagement_stats.shares_count", 3]},
+                            {"$multiply": ["$engagement_stats.views_count", 0.1]}
+                        ]
+                    }
+                }
+            },
+            # Join with users collection to get author data
+            {
+                "$addFields": {
+                    "user_id_obj": {"$toObjectId": "$user_id"}
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "users",
+                    "localField": "user_id_obj",
+                    "foreignField": "_id",
+                    "as": "author_data"
+                }
+            },
+            {
+                "$addFields": {
+                    "author": {
+                        "$cond": {
+                            "if": {"$gt": [{"$size": "$author_data"}, 0]},
+                            "then": {
+                                "id": {"$toString": {"$arrayElemAt": ["$author_data._id", 0]}},
+                                "username": {"$arrayElemAt": ["$author_data.username", 0]},
+                                "full_name": {"$arrayElemAt": ["$author_data.full_name", 0]},
+                                "avatar_url": {"$arrayElemAt": ["$author_data.avatar_url", 0]},
+                                "email": {"$arrayElemAt": ["$author_data.email", 0]}
+                            },
+                            "else": {
+                                "id": {"$toString": "$user_id"},
+                                "username": "unknown",
+                                "full_name": "Unknown User",
+                                "email": ""
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "$unset": ["author_data", "user_id_obj"]  # Remove only the temporary lookup fields, keep author
+            },
+            {
+                "$sort": {
+                    "trend_score": -1,  # Primary sort by engagement
+                    "created_at": -1    # Secondary sort by recency (for posts with same engagement)
+                }
+            },
+            {"$limit": limit}
+        ]
+        
+        posts = []
+        async for post in collection.aggregate(pipeline):
+            post["_id"] = str(post["_id"])
+            post["user_id"] = str(post["user_id"])
+            posts.append(post)
+            
+        # If no posts found in the time window, expand to get all recent public posts
+        if not posts:
+            print(f"No posts found in last {hours} hours, getting all recent public posts")
+            fallback_pipeline = [
+                {
+                    "$match": {
+                        "status": POST_STATUS_PUBLISHED,
+                        "visibility": POST_VISIBILITY_PUBLIC
+                    }
+                },
+                # Join with users collection for fallback too
+                {
+                    "$addFields": {
+                        "user_id_obj": {"$toObjectId": "$user_id"}
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "user_id_obj",
+                        "foreignField": "_id",
+                        "as": "author_data"
+                    }
+                },
+                {
+                    "$addFields": {
+                        "author": {
+                            "$cond": {
+                                "if": {"$gt": [{"$size": "$author_data"}, 0]},
+                                "then": {
+                                    "id": {"$toString": {"$arrayElemAt": ["$author_data._id", 0]}},
+                                    "username": {"$arrayElemAt": ["$author_data.username", 0]},
+                                    "full_name": {"$arrayElemAt": ["$author_data.full_name", 0]},
+                                    "avatar_url": {"$arrayElemAt": ["$author_data.avatar_url", 0]},
+                                    "email": {"$arrayElemAt": ["$author_data.email", 0]}
+                                },
+                                "else": {
+                                    "id": {"$toString": "$user_id"},
+                                    "username": "unknown",
+                                    "full_name": "Unknown User",
+                                    "email": ""
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "$unset": ["author_data", "user_id_obj"]  # Remove only the temporary lookup fields, keep author
+                },
+                {
+                    "$sort": {"created_at": -1}  # Most recent first
+                },
+                {"$limit": limit}
+            ]
+            
+            async for post in collection.aggregate(fallback_pipeline):
+                post["_id"] = str(post["_id"])
+                post["user_id"] = str(post["user_id"])
+                posts.append(post)
+        
         return posts

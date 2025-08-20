@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Request
+from fastapi import APIRouter, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List, Optional
 
@@ -273,14 +273,18 @@ async def delete_post(post_id: str, permanent: bool = False):
     """
     return await delete_post_logic(post_id, permanent)
 
-@router.get("/posts/trending", response_model=List[PostResponse], tags=["Posts"])
-async def get_trending_posts(hours: int = 24, limit: int = 50):
+@router.get("/posts/trending", response_model=PostListResponse, tags=["Posts"])
+async def get_trending_posts(
+    page: int = Query(1, ge=1, description="Page number"), 
+    limit: int = Query(20, ge=1, le=50, description="Posts per page"),
+    hours: int = Query(24, ge=1, le=168, description="Hours to look back for trending")
+):
     """
-    Get trending posts based on engagement
+    Get trending posts based on engagement with pagination
     
     Algorithm considers likes, comments, shares, and views
     """
-    return await get_trending_posts_logic(hours, limit)
+    return await get_trending_posts_logic(page, limit, hours)
 
 @router.get("/posts/{post_id}", response_model=PostResponse, tags=["Posts"])
 async def get_post(post_id: str):

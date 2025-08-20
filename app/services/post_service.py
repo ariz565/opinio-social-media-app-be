@@ -347,6 +347,73 @@ class PostService:
             has_prev=page > 1
         )
 
+    async def get_trending_posts_paginated(self, hours: int = 24, limit: int = 20, skip: int = 0) -> tuple[List[PostResponse], int]:
+        """Get trending posts with pagination"""
+        try:
+            # Get database connection
+            db = await get_database()
+            
+            # Get total count first
+            total = await self.post_model.get_trending_posts_count(hours)
+            
+            # Get paginated posts
+            posts = await self.post_model.get_trending_posts_paginated(hours, limit, skip)
+            if not posts:
+                return [], total
+            
+            result = []
+            for post in posts:
+                try:
+                    # Ensure required fields exist
+                    if not post.get('_id') or not post.get('user_id'):
+                        continue
+                    
+                    # Use author from aggregation if available, otherwise fetch separately
+                    if not post.get('author'):
+                        # Fallback: Get author information separately
+                        author = await user_model.get_user_by_id(db, str(post['user_id']))
+                        if author:
+                            post['author'] = {
+                                'id': str(author['_id']),
+                                'username': author.get('username', 'unknown'),
+                                'full_name': author.get('full_name', 'Unknown User'),
+                                'avatar_url': author.get('profile_picture'),
+                                'email': author.get('email', '')
+                            }
+                        else:
+                            # Default author if user not found
+                            post['author'] = {
+                                'id': str(post['user_id']),
+                                'username': 'unknown',
+                                'full_name': 'Unknown User',
+                                'avatar_url': None,
+                                'email': ''
+                            }
+                    
+                    # Convert _id to id for the response schema
+                    if "_id" in post:
+                        post["id"] = str(post["_id"])
+                        del post["_id"]
+                    
+                    # Ensure required fields with defaults
+                    post.setdefault('like_count', 0)
+                    post.setdefault('comment_count', 0)
+                    post.setdefault('share_count', 0)
+                    post.setdefault('view_count', 0)
+                    post.setdefault('is_liked', False)
+                    post.setdefault('is_bookmarked', False)
+                    post.setdefault('is_shared', False)
+                    
+                    result.append(PostResponse(**post))
+                except Exception as e:
+                    print(f"Error processing post {post.get('_id', 'unknown')}: {str(e)}")
+                    continue
+            
+            return result, total
+        except Exception as e:
+            print(f"Error in get_trending_posts_paginated service: {str(e)}")
+            return [], 0
+
     async def get_trending_posts(self, hours: int = 24, limit: int = 50) -> List[PostResponse]:
         """Get trending posts"""
         try:
