@@ -21,11 +21,24 @@ async def create_comment(
     Create a new comment or reply to an existing comment
     """
     try:
+        print(f"🔍 Creating comment: {comment_data}")
+        
+        # Get user ID safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            print(f"❌ User ID not found in: {current_user}")
+            raise HTTPException(status_code=400, detail="User ID not found")
+            
+        print(f"🔍 User ID: {user_id}")
+        
         # Validate post exists
         from app.models.post import post_model
         post = await post_model.get_post_by_id(comment_data.post_id)
         if not post:
+            print(f"❌ Post not found: {comment_data.post_id}")
             raise HTTPException(status_code=404, detail="Post not found")
+        
+        print(f"✅ Post found: {comment_data.post_id}")
         
         # Check if replying to a comment that exists
         if comment_data.parent_comment_id:
@@ -34,17 +47,19 @@ async def create_comment(
                 include_user=False
             )
             if not parent_comment:
+                print(f"❌ Parent comment not found: {comment_data.parent_comment_id}")
                 raise HTTPException(status_code=404, detail="Parent comment not found")
         
         # Create the comment
         comment = await comment_model.create_comment(
-            user_id=current_user["_id"],
+            user_id=user_id,
             post_id=comment_data.post_id,
             content=comment_data.content,
             parent_comment_id=comment_data.parent_comment_id,
             mentions=comment_data.mentions
         )
         
+        print(f"✅ Comment created successfully: {comment}")
         return CommentResponse(**comment)
     
     except HTTPException:
@@ -61,11 +76,17 @@ async def get_post_comments(
     Public endpoint - no authentication required for viewing comments
     """
     try:
+        print(f"🔍 Getting comments for post: {post_id}")
+        print(f"🔍 Comment params: {params}")
+        
         # Validate post exists
         from app.models.post import post_model
         post = await post_model.get_post_by_id(post_id)
         if not post:
+            print(f"❌ Post not found: {post_id}")
             raise HTTPException(status_code=404, detail="Post not found")
+        
+        print(f"✅ Post found: {post_id}")
         
         comments = await comment_model.get_post_comments(
             post_id=post_id,
@@ -76,11 +97,13 @@ async def get_post_comments(
             load_replies=params.load_replies
         )
         
+        print(f"🔍 Found {len(comments)} comments for post {post_id}")
         return [CommentResponse(**comment) for comment in comments]
     
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Error getting comments: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get comments: {str(e)}")
 
 async def get_comment_by_id(
@@ -112,9 +135,14 @@ async def update_comment(
     Update a comment's content (only by the comment author)
     """
     try:
+        # Get user ID safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=400, detail="User ID not found")
+            
         updated_comment = await comment_model.update_comment(
             comment_id=comment_id,
-            user_id=current_user["_id"],
+            user_id=user_id,
             new_content=comment_data.content
         )
         
@@ -140,12 +168,17 @@ async def delete_comment(
     Delete a comment (soft delete - only by comment author or admin)
     """
     try:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+            
         # Check if user is admin
         is_admin = current_user.get("role") == "admin"
         
         success = await comment_model.delete_comment(
             comment_id=comment_id,
-            user_id=current_user["_id"],
+            user_id=user_id,
             is_admin=is_admin
         )
         
@@ -264,8 +297,13 @@ async def get_user_comments(
     Get comments by a specific user (defaults to current user)
     """
     try:
+        # Get current user_id safely if no user_id provided
+        current_user_id = current_user.get('_id') or current_user.get('id')
+        if not current_user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+        
         # Use current user if no user_id provided
-        target_user_id = user_id or current_user["_id"]
+        target_user_id = user_id or current_user_id
         
         comments = await comment_model.get_user_comments(
             user_id=target_user_id,
@@ -289,6 +327,11 @@ async def get_comment_mentions(
     Get comments where the current user is mentioned
     """
     try:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+            
         from app.database.mongo_connection import get_database
         db = await get_database()
         
@@ -296,7 +339,7 @@ async def get_comment_mentions(
         pipeline = [
             {
                 "$match": {
-                    "mentions": current_user["_id"],
+                    "mentions": user_id,
                     "is_deleted": False
                 }
             },
@@ -368,7 +411,12 @@ async def get_comment_analytics(
         if not post:
             raise HTTPException(status_code=404, detail="Post not found")
         
-        if post["user_id"] != current_user["_id"]:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+        
+        if post["user_id"] != user_id:
             raise HTTPException(status_code=403, detail="Not authorized to view analytics")
         
         from app.database.mongo_connection import get_database

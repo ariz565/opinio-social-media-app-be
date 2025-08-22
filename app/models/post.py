@@ -713,3 +713,6 @@ class Post:
                 posts.append(post)
         
         return posts
+
+# Create global instance
+post_model = Post()

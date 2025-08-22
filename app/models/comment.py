@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import asyncio
 from enum import Enum
+from bson import ObjectId
 from app.database.mongo_connection import get_database
 
 class CommentSortType(str, Enum):
@@ -27,7 +28,7 @@ class CommentModel:
         
     async def get_db(self):
         """Get database connection"""
-        if not self.db:
+        if self.db is None:
             self.db = await get_database()
         return self.db
 
@@ -40,6 +41,7 @@ class CommentModel:
         mentions: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """Create a new comment or reply"""
+        print(f"🔍 create_comment called with user_id: {user_id} (type: {type(user_id)})")
         db = await self.get_db()
         
         # Build comment path for threading
@@ -48,13 +50,18 @@ class CommentModel:
         
         if parent_comment_id:
             # Get parent comment to build path
-            parent_comment = await db.comments.find_one({"_id": parent_comment_id})
-            if parent_comment:
-                comment_path = parent_comment.get("path", []) + [parent_comment_id]
-                depth = len(comment_path)
+            try:
+                parent_object_id = ObjectId(parent_comment_id)
+                parent_comment = await db.comments.find_one({"_id": parent_object_id})
+                if parent_comment:
+                    comment_path = parent_comment.get("path", []) + [parent_comment_id]
+                    depth = len(comment_path)
+            except Exception as e:
+                print(f"❌ Invalid parent comment ID format: {parent_comment_id}, error: {e}")
+                # Continue without parent - treat as top-level comment
         
         comment_data = {
-            "user_id": user_id,
+            "user_id": ObjectId(user_id),  # Store as ObjectId
             "post_id": post_id,
             "content": content,
             "parent_comment_id": parent_comment_id,
@@ -81,24 +88,44 @@ class CommentModel:
             "updated_at": datetime.utcnow()
         }
         
+        print(f"🔍 About to insert comment data: {comment_data}")
         result = await db.comments.insert_one(comment_data)
         comment_id = str(result.inserted_id)
+        print(f"🔍 Comment inserted with ID: {comment_id}")
         
         # Update parent comment reply count
         if parent_comment_id:
-            await db.comments.update_one(
-                {"_id": parent_comment_id},
-                {"$inc": {"reply_count": 1}}
-            )
+            try:
+                parent_object_id = ObjectId(parent_comment_id)
+                await db.comments.update_one(
+                    {"_id": parent_object_id},
+                    {"$inc": {"reply_count": 1}}
+                )
+            except Exception as e:
+                print(f"❌ Error updating parent comment reply count: {e}")
         
         # Update post comment count
-        await db.posts.update_one(
-            {"_id": post_id},
-            {"$inc": {"comment_count": 1}}
-        )
+        try:
+            post_object_id = ObjectId(post_id)
+            await db.posts.update_one(
+                {"_id": post_object_id},
+                {"$inc": {"comment_count": 1}}
+            )
+        except Exception as e:
+            print(f"❌ Error updating post comment count: {e}")
         
         # Get created comment with user details
-        created_comment = await self.get_comment_by_id(comment_id)
+        print(f"🔍 Attempting to retrieve created comment with ID: {comment_id}")
+        created_comment = await self.get_comment_by_id(comment_id, include_user=False)
+        print(f"🔍 Retrieved comment (without user): {created_comment}")
+        
+        # If that works, try with user details
+        if created_comment:
+            print(f"🔍 Now trying to get comment with user details...")
+            created_comment_with_user = await self.get_comment_by_id(comment_id, include_user=True)
+            print(f"🔍 Retrieved comment (with user): {created_comment_with_user}")
+            return created_comment_with_user or created_comment
+        
         return created_comment
 
     async def get_comment_by_id(
@@ -109,9 +136,19 @@ class CommentModel:
         """Get a single comment by ID with optional user details"""
         db = await self.get_db()
         
+        print(f"🔍 get_comment_by_id called with ID: {comment_id}, include_user: {include_user}")
+        
+        try:
+            # Convert string ID to ObjectId for MongoDB query
+            object_id = ObjectId(comment_id)
+            print(f"🔍 Converted to ObjectId: {object_id}")
+        except Exception as e:
+            print(f"❌ Invalid comment ID format: {comment_id}, error: {e}")
+            return None
+        
         if include_user:
             pipeline = [
-                {"$match": {"_id": comment_id}},
+                {"$match": {"_id": object_id}},
                 {
                     "$lookup": {
                         "from": "users",
@@ -124,7 +161,7 @@ class CommentModel:
                 {
                     "$project": {
                         "_id": {"$toString": "$_id"},
-                        "user_id": 1,
+                        "user_id": {"$toString": "$user_id"},
                         "post_id": 1,
                         "content": 1,
                         "parent_comment_id": 1,
@@ -146,12 +183,20 @@ class CommentModel:
                 }
             ]
             
+            print(f"🔍 Running aggregation pipeline for comment lookup")
             comments = await db.comments.aggregate(pipeline).to_list(length=1)
-            return comments[0] if comments else None
+            print(f"🔍 Aggregation result: {comments}")
+            result = comments[0] if comments else None
+            print(f"🔍 Returning from aggregation: {result}")
+            return result
         else:
-            comment = await db.comments.find_one({"_id": comment_id})
+            print(f"🔍 Running simple find_one query")
+            comment = await db.comments.find_one({"_id": object_id})
+            print(f"🔍 Simple query result: {comment}")
             if comment:
                 comment["_id"] = str(comment["_id"])
+                comment["user_id"] = str(comment["user_id"])  # Convert ObjectId to string
+                print(f"🔍 Converted _id and user_id to string: {comment}")
             return comment
 
     async def get_post_comments(
@@ -203,7 +248,7 @@ class CommentModel:
             {
                 "$project": {
                     "_id": {"$toString": "$_id"},
-                    "user_id": 1,
+                    "user_id": {"$toString": "$user_id"},
                     "post_id": 1,
                     "content": 1,
                     "depth": 1,

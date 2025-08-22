@@ -68,7 +68,7 @@ from app.schemas.interactions import (
     BulkBookmarkOperation, FollowResponse, FollowRequestResponse, FollowerResponse,
     FollowingResponse, FollowRequestItem, MutualConnection, FriendSuggestion,
     UserConnections, FollowListParams, ShareCreate, ShareResponse, UserShareResponse,
-    RepostFeedItem, ShareAnalytics, TrendingShare, MessageResponse
+    RepostFeedItem, ShareAnalytics, TrendingShare, MessageResponse, PaginatedResponse
 )
 from app.utils.decorators import require_authentication, require_active_user, log_endpoint_access
 from app.config import get_settings
@@ -350,15 +350,13 @@ async def like_post(post_id: str, current_user: dict = Depends(get_current_user)
     """
     print(f"🔍 Like endpoint called for post: {post_id} by user: {current_user.get('_id')}")
     try:
-        # Use the toggle reaction functionality with "like" reaction type
-        reaction_data = ReactionCreate(
-            target_type="posts",
-            target_id=post_id,
-            reaction_type="like"
-        )
-        
         # Toggle the reaction (add if not exists, remove if exists)
-        result = await toggle_reaction(current_user, reaction_data)
+        result = await toggle_reaction(
+            target_id=post_id,
+            target_type="posts", 
+            reaction_type="like",
+            current_user=current_user
+        )
         print(f"🔍 Like toggle result: {result}")
         
         # Return simplified response for frontend
@@ -390,12 +388,54 @@ async def add_comment_to_post(
         if not content.strip():
             raise HTTPException(status_code=400, detail="Comment content is required")
         
+        # Create CommentCreate object
+        comment_create = CommentCreate(
+            post_id=post_id,
+            content=content,
+            mentions=comment_data.get("mentions", [])
+        )
+        
         # Create comment using the existing function
-        comment = await create_comment(post_id, current_user, content)
+        comment = await create_comment(comment_create, current_user)
         print(f"🔍 Comment created: {comment.id}")
         return comment
     except Exception as e:
         print(f"❌ Comment endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
+
+# Alternative POST route to match frontend expectation
+@router.post("/comments/posts/{post_id}", response_model=CommentResponse, tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def create_comment_alt(
+    post_id: str,
+    comment_data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Add a comment to a post (alternative route to match frontend)
+    
+    🔐 Requires Authentication
+    """
+    print(f"🔍 Comment endpoint (alt route) called for post: {post_id} by user: {current_user.get('_id')}")
+    try:
+        content = comment_data.get("content", "")
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="Comment content is required")
+        
+        # Create CommentCreate object
+        comment_create = CommentCreate(
+            post_id=post_id,
+            content=content,
+            mentions=comment_data.get("mentions", [])
+        )
+        
+        # Create comment using the existing function
+        comment = await create_comment(comment_create, current_user)
+        print(f"🔍 Comment created (alt route): {comment.id}")
+        return comment
+    except Exception as e:
+        print(f"❌ Comment endpoint (alt route) error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
 
 @router.post("/posts/{post_id}/bookmark", tags=["Posts"])
@@ -409,16 +449,21 @@ async def bookmark_post(post_id: str, current_user: dict = Depends(get_current_u
     """
     print(f"🔍 Bookmark endpoint called for post: {post_id} by user: {current_user.get('_id')}")
     try:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+        
         # Check if already bookmarked
-        is_bookmarked = await check_bookmark_status(str(current_user["_id"]), post_id)
+        is_bookmarked = await check_bookmark_status(str(user_id), post_id)
         
         if is_bookmarked:
             # Remove bookmark
-            await remove_bookmark(str(current_user["_id"]), post_id)
+            await remove_bookmark(str(user_id), post_id)
             return {"message": "Bookmark removed", "is_bookmarked": False}
         else:
             # Add bookmark
-            await add_bookmark(str(current_user["_id"]), post_id)
+            await add_bookmark(str(user_id), post_id)
             return {"message": "Post bookmarked", "is_bookmarked": True}
     except Exception as e:
         print(f"❌ Bookmark endpoint error: {str(e)}")
@@ -439,10 +484,15 @@ async def share_post(
     """
     print(f"🔍 Share endpoint called for post: {post_id} by user: {current_user.get('_id')}")
     try:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+        
         content = share_data.get("content", "") if share_data else ""
         
         # Create share using the existing function
-        share = await share_post(str(current_user["_id"]), post_id, content)
+        share = await share_post(str(user_id), post_id, content)
         
         # Get updated share count (this would need to be implemented in the share service)
         share_count = 1  # Placeholder - you'd need to implement getting actual count
@@ -876,9 +926,40 @@ async def get_comments_for_post(post_id: str, params: CommentListParams = None):
     Get comments for a post with advanced sorting and threading
     Public endpoint - no authentication required for viewing comments
     """
+    print(f"🔍 GET comments for post: {post_id}")
     if params is None:
         params = CommentListParams()
     return await get_post_comments(post_id, params)
+
+# Alternative route to match frontend expectation
+@router.get("/comments/posts/{post_id}", response_model=PaginatedResponse, tags=["Comments"])
+async def get_post_comments_alt(
+    post_id: str, 
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    sort_by: str = Query("newest", description="Sort by: newest, oldest, popular")
+):
+    """
+    Get comments for a post (alternative route to match frontend)
+    Public endpoint - no authentication required for viewing comments
+    """
+    print(f"🔍 GET comments for post (alt route): {post_id}, page: {page}, limit: {limit}, sort: {sort_by}")
+    params = CommentListParams(
+        page=page,
+        limit=limit,
+        sort_by=sort_by
+    )
+    comments_list = await get_post_comments(post_id, params)
+    
+    # Convert to paginated response format
+    return PaginatedResponse(
+        items=comments_list,
+        total=len(comments_list),  # This is just the current page count, not total
+        page=page,
+        per_page=limit,
+        has_next=len(comments_list) == limit,
+        has_prev=page > 1
+    )
 
 @router.get("/comments/{comment_id}", response_model=CommentResponse, tags=["Comments"])
 async def get_single_comment(comment_id: str):

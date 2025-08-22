@@ -57,26 +57,37 @@ async def close_mongo_connection():
 
 async def get_database():
     """Get database instance with connection retry"""
-    if mongodb.database is None:
-        # Try to connect if not already connected
-        try:
-            await connect_to_mongo()
-        except Exception as e:
-            logger.error(f"Failed to connect to database: {e}")
-            raise Exception(f"Database not connected: {e}")
-    
-    # Double check that database is still available
-    if mongodb.database is None:
-        logger.error("Database connection is None after connection attempt")
-        raise Exception("Database connection failed - database is None")
-    
-    # Verify connection is still alive
     try:
-        await mongodb.client.admin.command('ping')
+        # Check if we have a valid database connection
+        if hasattr(mongodb, 'database') and mongodb.database is not None:
+            # Test the connection
+            await mongodb.client.admin.command('ping')
+            return mongodb.database
+    except (AttributeError, Exception):
+        # Connection issues, try to reconnect
+        pass
+    
+    # Try to connect if not already connected or connection failed
+    try:
+        await connect_to_mongo()
     except Exception as e:
-        logger.warning(f"Database ping failed, attempting reconnection: {e}")
+        logger.error(f"Failed to connect to database: {e}")
+        raise Exception(f"Database not connected: {e}")
+    
+    # Double check that database is available after connection
+    try:
+        if not hasattr(mongodb, 'database') or mongodb.database is None:
+            logger.error("Database connection is None after connection attempt")
+            raise Exception("Database connection failed - database is None")
+        
+        # Verify connection is still alive
+        await mongodb.client.admin.command('ping')
+        return mongodb.database
+    except Exception as e:
+        logger.warning(f"Database verification failed, attempting reconnection: {e}")
         try:
             await connect_to_mongo()
+            return mongodb.database
         except Exception as reconnect_error:
             logger.error(f"Reconnection failed: {reconnect_error}")
             raise Exception(f"Database reconnection failed: {reconnect_error}")
@@ -86,9 +97,12 @@ async def get_database():
 async def get_collection(collection_name: str):
     """Get a specific collection"""
     database = await get_database()
-    if database is None:
+    try:
+        # Test if database is accessible by trying to access its name
+        _ = database.name
+        return database[collection_name]
+    except (AttributeError, Exception):
         raise Exception("Database not connected")
-    return database[collection_name]
 
 # Health check function
 async def ping_database():

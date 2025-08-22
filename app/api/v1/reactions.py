@@ -21,8 +21,13 @@ async def add_reaction_to_target(
     Add or update a reaction to a post, comment, or story
     """
     try:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+            
         result = await reaction_model.add_reaction(
-            user_id=current_user["_id"],
+            user_id=user_id,
             target_id=reaction_data.target_id,
             target_type=reaction_data.target_type,
             reaction_type=reaction_data.reaction_type
@@ -46,8 +51,13 @@ async def remove_reaction_from_target(
     Remove user's reaction from a target
     """
     try:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+            
         success = await reaction_model.remove_reaction(
-            user_id=current_user["_id"],
+            user_id=user_id,
             target_id=target_id,
             target_type=target_type
         )
@@ -126,8 +136,13 @@ async def get_user_reaction_for_target(
     Get current user's reaction for a specific target
     """
     try:
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+            
         reaction = await reaction_model.get_user_reaction(
-            user_id=current_user["_id"],
+            user_id=user_id,
             target_id=target_id,
             target_type=target_type
         )
@@ -157,8 +172,13 @@ async def get_user_reactions_list(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid reaction type")
         
+        # Get user_id safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found")
+        
         reactions = await reaction_model.get_user_reactions(
-            user_id=current_user["_id"],
+            user_id=user_id,
             target_type=target_type,
             reaction_type=reaction_enum,
             limit=limit,
@@ -209,30 +229,45 @@ async def toggle_reaction(
     Toggle a reaction (add if not exists, remove if exists, or update if different)
     """
     try:
+        print(f"DEBUG: toggle_reaction called with target_id={target_id}, target_type={target_type}, reaction_type={reaction_type}")
+        print(f"DEBUG: current_user={current_user}")
+        
+        # Get user ID safely
+        user_id = current_user.get('_id') or current_user.get('id')
+        if not user_id:
+            print("DEBUG: User ID not found in current_user")
+            raise HTTPException(status_code=400, detail="User ID not found")
+        
+        print(f"DEBUG: Using user_id={user_id}")
+        
         # Validate reaction type
         try:
             reaction_enum = ReactionType(reaction_type)
+            print(f"DEBUG: Valid reaction type: {reaction_enum}")
         except ValueError:
+            print(f"DEBUG: Invalid reaction type: {reaction_type}")
             raise HTTPException(status_code=400, detail="Invalid reaction type")
         
+        print("DEBUG: About to check existing reaction")
         # Check if user already has a reaction
         existing_reaction = await reaction_model.get_user_reaction(
-            user_id=current_user["_id"],
+            user_id=user_id,
             target_id=target_id,
             target_type=target_type
         )
+        print(f"DEBUG: Existing reaction: {existing_reaction}")
         
         if existing_reaction:
             if existing_reaction["reaction_type"] == reaction_type:
                 # Same reaction - remove it
                 await reaction_model.remove_reaction(
-                    user_id=current_user["_id"],
+                    user_id=user_id,
                     target_id=target_id,
                     target_type=target_type
                 )
                 return ReactionResponse(
                     _id=existing_reaction["_id"],
-                    user_id=current_user["_id"],
+                    user_id=user_id,
                     target_id=target_id,
                     target_type=target_type,
                     reaction_type=reaction_type,
@@ -242,7 +277,7 @@ async def toggle_reaction(
             else:
                 # Different reaction - update it
                 result = await reaction_model.add_reaction(
-                    user_id=current_user["_id"],
+                    user_id=user_id,
                     target_id=target_id,
                     target_type=target_type,
                     reaction_type=reaction_enum
@@ -251,7 +286,7 @@ async def toggle_reaction(
         else:
             # No existing reaction - add new one
             result = await reaction_model.add_reaction(
-                user_id=current_user["_id"],
+                user_id=user_id,
                 target_id=target_id,
                 target_type=target_type,
                 reaction_type=reaction_enum

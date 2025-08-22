@@ -30,9 +30,15 @@ class ReactionModel:
         
     async def get_db(self):
         """Get database connection"""
-        if not self.db:
-            self.db = await get_database()
-        return self.db
+        try:
+            if self.db is None:
+                print("DEBUG: Getting new database connection")
+                self.db = await get_database()
+                print(f"DEBUG: Database connection obtained: {type(self.db)}")
+            return self.db
+        except Exception as e:
+            print(f"DEBUG: Error getting database: {e}")
+            raise
 
     async def add_reaction(
         self,
@@ -219,18 +225,25 @@ class ReactionModel:
         target_type: str
     ) -> Optional[Dict[str, Any]]:
         """Get a specific user's reaction for a target"""
-        db = await self.get_db()
-        
-        reaction = await db.reactions.find_one({
-            "user_id": user_id,
-            "target_id": target_id,
-            "target_type": target_type
-        })
-        
-        if reaction:
-            reaction["_id"] = str(reaction["_id"])
-        
-        return reaction
+        try:
+            print(f"DEBUG: get_user_reaction called with user_id={user_id}, target_id={target_id}, target_type={target_type}")
+            db = await self.get_db()
+            print(f"DEBUG: Database obtained: {type(db)}")
+            
+            reaction = await db.reactions.find_one({
+                "user_id": user_id,
+                "target_id": target_id,
+                "target_type": target_type
+            })
+            print(f"DEBUG: Reaction found: {reaction}")
+            
+            if reaction:
+                reaction["_id"] = str(reaction["_id"])
+            
+            return reaction
+        except Exception as e:
+            print(f"DEBUG: Error in get_user_reaction: {e}")
+            raise
 
     async def get_user_reactions(
         self,

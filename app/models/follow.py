@@ -34,7 +34,7 @@ class FollowModel:
         
     async def get_db(self):
         """Get database connection"""
-        if not self.db:
+        if self.db is None:
             self.db = await get_database()
         return self.db
 
