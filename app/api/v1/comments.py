@@ -21,24 +21,19 @@ async def create_comment(
     Create a new comment or reply to an existing comment
     """
     try:
-        print(f"🔍 Creating comment: {comment_data}")
-        
-        # Get user ID safely
+        # Get user ID safely and convert to string
         user_id = current_user.get('_id') or current_user.get('id')
         if not user_id:
-            print(f"❌ User ID not found in: {current_user}")
             raise HTTPException(status_code=400, detail="User ID not found")
-            
-        print(f"🔍 User ID: {user_id}")
         
+        # Ensure user_id is a string
+        user_id = str(user_id)
+            
         # Validate post exists
         from app.models.post import post_model
         post = await post_model.get_post_by_id(comment_data.post_id)
         if not post:
-            print(f"❌ Post not found: {comment_data.post_id}")
             raise HTTPException(status_code=404, detail="Post not found")
-        
-        print(f"✅ Post found: {comment_data.post_id}")
         
         # Check if replying to a comment that exists
         if comment_data.parent_comment_id:
@@ -47,7 +42,6 @@ async def create_comment(
                 include_user=False
             )
             if not parent_comment:
-                print(f"❌ Parent comment not found: {comment_data.parent_comment_id}")
                 raise HTTPException(status_code=404, detail="Parent comment not found")
         
         # Create the comment
@@ -59,7 +53,6 @@ async def create_comment(
             mentions=comment_data.mentions
         )
         
-        print(f"✅ Comment created successfully: {comment}")
         return CommentResponse(**comment)
     
     except HTTPException:

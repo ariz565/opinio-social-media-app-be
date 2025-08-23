@@ -62,13 +62,13 @@ from app.schemas.post import (
 # Import interaction system schemas
 from app.schemas.interactions import (
     ReactionCreate, ReactionResponse, ReactionWithUser, ReactionCounts,
-    CommentCreate, CommentUpdate, CommentResponse, CommentListParams,
+    CommentCreate, CommentUpdate, CommentResponse, CommentListParams, CommentSortType,
     BookmarkCreate, BookmarkUpdate, BookmarkResponse, BookmarkCollectionCreate,
     BookmarkCollectionUpdate, BookmarkCollectionResponse, BookmarkListParams,
     BulkBookmarkOperation, FollowResponse, FollowRequestResponse, FollowerResponse,
     FollowingResponse, FollowRequestItem, MutualConnection, FriendSuggestion,
     UserConnections, FollowListParams, ShareCreate, ShareResponse, UserShareResponse,
-    RepostFeedItem, ShareAnalytics, TrendingShare, MessageResponse, PaginatedResponse
+    RepostFeedItem, ShareAnalytics, TrendingShare, MessageResponse
 )
 from app.utils.decorators import require_authentication, require_active_user, log_endpoint_access
 from app.config import get_settings
@@ -339,36 +339,6 @@ async def get_user_posts(
     """
     return await get_user_posts_logic(user_id, page, per_page, include_drafts)
 
-@router.post("/posts/{post_id}/like", tags=["Posts"])
-@require_authentication
-@log_endpoint_access
-async def like_post(post_id: str, current_user: dict = Depends(get_current_user)):
-    """
-    Like/Unlike a post (toggle)
-    
-    🔐 Requires Authentication
-    """
-    print(f"🔍 Like endpoint called for post: {post_id} by user: {current_user.get('_id')}")
-    try:
-        # Toggle the reaction (add if not exists, remove if exists)
-        result = await toggle_reaction(
-            target_id=post_id,
-            target_type="posts", 
-            reaction_type="like",
-            current_user=current_user
-        )
-        print(f"🔍 Like toggle result: {result}")
-        
-        # Return simplified response for frontend
-        return {
-            "message": "Post liked" if result.get("added") else "Post unliked",
-            "is_liked": result.get("added", False),
-            "like_count": result.get("total_reactions", 0)
-        }
-    except Exception as e:
-        print(f"❌ Like endpoint error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to like post: {str(e)}")
-
 @router.post("/posts/{post_id}/comments", response_model=CommentResponse, tags=["Posts"])
 @require_authentication
 @log_endpoint_access
@@ -388,15 +358,8 @@ async def add_comment_to_post(
         if not content.strip():
             raise HTTPException(status_code=400, detail="Comment content is required")
         
-        # Create CommentCreate object
-        comment_create = CommentCreate(
-            post_id=post_id,
-            content=content,
-            mentions=comment_data.get("mentions", [])
-        )
-        
         # Create comment using the existing function
-        comment = await create_comment(comment_create, current_user)
+        comment = await create_comment(post_id, current_user, content)
         print(f"🔍 Comment created: {comment.id}")
         return comment
     except Exception as e:
@@ -427,7 +390,8 @@ async def create_comment_alt(
         comment_create = CommentCreate(
             post_id=post_id,
             content=content,
-            mentions=comment_data.get("mentions", [])
+            mentions=comment_data.get("mentions", []),
+            parent_comment_id=comment_data.get("parent_comment_id")
         )
         
         # Create comment using the existing function
@@ -932,7 +896,7 @@ async def get_comments_for_post(post_id: str, params: CommentListParams = None):
     return await get_post_comments(post_id, params)
 
 # Alternative route to match frontend expectation
-@router.get("/comments/posts/{post_id}", response_model=PaginatedResponse, tags=["Comments"])
+@router.get("/comments/posts/{post_id}", tags=["Comments"])
 async def get_post_comments_alt(
     post_id: str, 
     page: int = Query(1, ge=1),
@@ -944,22 +908,38 @@ async def get_post_comments_alt(
     Public endpoint - no authentication required for viewing comments
     """
     print(f"🔍 GET comments for post (alt route): {post_id}, page: {page}, limit: {limit}, sort: {sort_by}")
-    params = CommentListParams(
-        page=page,
-        limit=limit,
-        sort_by=sort_by
-    )
-    comments_list = await get_post_comments(post_id, params)
     
-    # Convert to paginated response format
-    return PaginatedResponse(
-        items=comments_list,
-        total=len(comments_list),  # This is just the current page count, not total
-        page=page,
-        per_page=limit,
-        has_next=len(comments_list) == limit,
-        has_prev=page > 1
+    # Convert page to skip (page 1 = skip 0)
+    skip = (page - 1) * limit
+    
+    # Convert sort_by to sort_type enum
+    sort_type_mapping = {
+        "newest": CommentSortType.NEWEST,
+        "oldest": CommentSortType.OLDEST, 
+        "popular": CommentSortType.MOST_LIKED,
+        "most_liked": CommentSortType.MOST_LIKED,
+        "most_replies": CommentSortType.MOST_REPLIES
+    }
+    sort_type = sort_type_mapping.get(sort_by, CommentSortType.NEWEST)
+    
+    params = CommentListParams(
+        sort_type=sort_type,
+        limit=limit,
+        skip=skip,
+        max_depth=3,
+        load_replies=True
     )
+    comments = await get_post_comments(post_id, params)
+    
+    # Return paginated response format that frontend expects
+    return {
+        "items": comments,
+        "total": len(comments), # This could be enhanced with actual total count
+        "page": page,
+        "limit": limit,
+        "has_next": len(comments) == limit,
+        "has_prev": page > 1
+    }
 
 @router.get("/comments/{comment_id}", response_model=CommentResponse, tags=["Comments"])
 async def get_single_comment(comment_id: str):
@@ -1049,6 +1029,214 @@ async def get_post_comment_analytics(post_id: str):
     Get comment analytics for a post (post owner only)
     """
     return await get_comment_analytics(post_id)
+
+# -----------------------------------------------------------------------------
+# COMMENT REPLY AND LIKE ENDPOINTS (Frontend Compatible)
+# -----------------------------------------------------------------------------
+
+@router.post("/comments/{comment_id}/reply", response_model=CommentResponse, tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def reply_to_comment(comment_id: str, reply_data: dict, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Create a reply to a specific comment
+    """
+    try:
+        # Get the parent comment to extract post_id
+        parent_comment = await get_comment_by_id(comment_id)
+        if not parent_comment:
+            raise HTTPException(status_code=404, detail="Parent comment not found")
+        
+        # Create comment data with the required fields
+        comment_data = CommentCreate(
+            post_id=parent_comment.post_id,
+            content=reply_data.get("content"),
+            parent_comment_id=comment_id,
+            mentions=reply_data.get("mentions", [])
+        )
+        
+        # Use the create_comment function directly
+        return await create_comment(comment_data, current_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in reply_to_comment: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create reply: {str(e)}")
+
+@router.post("/comments/{comment_id}/like", tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def like_comment(comment_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Like a comment
+    """
+    try:
+        # Use the reaction system to add a like reaction
+        reaction_data = ReactionCreate(
+            target_id=comment_id,
+            target_type="comment",
+            reaction_type="like"
+        )
+        result = await add_reaction_to_target(reaction_data, current_user)
+        
+        # Get updated reaction counts
+        counts = await get_target_reaction_counts(comment_id, "comment")
+        
+        return {
+            "message": "Comment liked successfully",
+            "likes": counts.like
+        }
+    except Exception as e:
+        print(f"Error in like_comment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/comments/{comment_id}/like", tags=["Comments"])
+@require_authentication
+@log_endpoint_access
+async def unlike_comment(comment_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Unlike a comment
+    """
+    try:
+        # Use the reaction system to remove like reaction
+        result = await remove_reaction_from_target(comment_id, "comment", current_user)
+        
+        # Get updated reaction counts
+        counts = await get_target_reaction_counts(comment_id, "comment")
+        
+        return {
+            "message": "Comment unliked successfully",
+            "likes": counts.like
+        }
+    except Exception as e:
+        print(f"Error in unlike_comment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/posts/{post_id}/like", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def like_post(post_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Like a post
+    """
+    try:
+        # Use the reaction system to add a like reaction
+        reaction_data = ReactionCreate(
+            target_id=post_id,
+            target_type="posts",
+            reaction_type="like"
+        )
+        result = await add_reaction_to_target(reaction_data, current_user)
+        
+        # Get updated reaction counts
+        counts = await get_target_reaction_counts(post_id, "posts")
+        
+        # Check if user has liked the post
+        user_reaction = await get_user_reaction_for_target(post_id, "posts", current_user)
+        is_liked = user_reaction is not None and user_reaction.reaction_type == "like"
+        
+        return {
+            "message": "Post liked successfully",
+            "is_liked": is_liked,
+            "like_count": counts.like
+        }
+    except Exception as e:
+        print(f"Error in like_post: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/posts/{post_id}/like", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def unlike_post(post_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Unlike a post
+    """
+    try:
+        # Use the reaction system to remove like reaction
+        result = await remove_reaction_from_target(post_id, "posts", current_user)
+        
+        # Get updated reaction counts
+        counts = await get_target_reaction_counts(post_id, "posts")
+        
+        return {
+            "message": "Post unliked successfully",
+            "is_liked": False,
+            "like_count": counts.like
+        }
+    except Exception as e:
+        print(f"Error in unlike_post: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Alternative reaction endpoints for frontend compatibility
+@router.get("/posts/{post_id}/like-status", tags=["Posts"])
+@require_authentication
+@log_endpoint_access
+async def get_post_like_status(post_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Get like status and count for a post
+    """
+    try:
+        # Get reaction counts
+        counts = await get_target_reaction_counts(post_id, "posts")
+        
+        # Check if user has liked the post
+        user_reaction = await get_user_reaction_for_target(post_id, "posts", current_user)
+        is_liked = user_reaction is not None and user_reaction.reaction_type == "like"
+        
+        return {
+            "is_liked": is_liked,
+            "like_count": counts.like,
+            "total_reactions": counts.total
+        }
+    except Exception as e:
+        print(f"Error in get_post_like_status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/reactions/posts/{post_id}/like", tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def like_post_alt(post_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Like a post (alternative endpoint)
+    """
+    return await like_post(post_id, current_user)
+
+@router.delete("/reactions/posts/{post_id}/like", tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def unlike_post_alt(post_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Unlike a post (alternative endpoint)
+    """
+    return await unlike_post(post_id, current_user)
+
+@router.post("/reactions/comments/{comment_id}/like", tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def like_comment_alt(comment_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Like a comment (alternative endpoint)
+    """
+    return await like_comment(comment_id, current_user)
+
+@router.delete("/reactions/comments/{comment_id}/like", tags=["Reactions"])
+@require_authentication
+@log_endpoint_access
+async def unlike_comment_alt(comment_id: str, current_user = Depends(get_current_user)):
+    """
+    🔐 Requires Authentication
+    Unlike a comment (alternative endpoint)
+    """
+    return await unlike_comment(comment_id, current_user)
 
 # -----------------------------------------------------------------------------
 # BOOKMARKS SYSTEM

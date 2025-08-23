@@ -713,6 +713,5 @@ class Post:
                 posts.append(post)
         
         return posts
-
-# Create global instance
+# Create a global instance for use in other modules
 post_model = Post()

@@ -81,7 +81,7 @@ class ReactionModel:
                 "target_id": target_id,
                 "target_type": target_type,
                 "reaction_type": reaction_type.value,
-                "updated_at": datetime.utcnow(),
+                "created_at": existing_reaction.get("created_at", datetime.utcnow()),
                 "action": "updated"
             }
         else:
@@ -102,8 +102,12 @@ class ReactionModel:
             
             return {
                 "_id": str(result.inserted_id),
-                "action": "created",
-                **reaction_data
+                "user_id": user_id,
+                "target_id": target_id,
+                "target_type": target_type,
+                "reaction_type": reaction_type.value,
+                "created_at": reaction_data["created_at"],
+                "action": "created"
             }
 
     async def remove_reaction(

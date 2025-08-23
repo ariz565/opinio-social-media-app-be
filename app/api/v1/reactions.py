@@ -21,10 +21,13 @@ async def add_reaction_to_target(
     Add or update a reaction to a post, comment, or story
     """
     try:
-        # Get user_id safely
+        # Get user_id safely and convert to string
         user_id = current_user.get('_id') or current_user.get('id')
         if not user_id:
             raise HTTPException(status_code=401, detail="User ID not found")
+        
+        # Ensure user_id is a string
+        user_id = str(user_id)
             
         result = await reaction_model.add_reaction(
             user_id=user_id,
@@ -51,10 +54,13 @@ async def remove_reaction_from_target(
     Remove user's reaction from a target
     """
     try:
-        # Get user_id safely
+        # Get user_id safely and convert to string
         user_id = current_user.get('_id') or current_user.get('id')
         if not user_id:
             raise HTTPException(status_code=401, detail="User ID not found")
+        
+        # Ensure user_id is a string
+        user_id = str(user_id)
             
         success = await reaction_model.remove_reaction(
             user_id=user_id,
@@ -136,10 +142,13 @@ async def get_user_reaction_for_target(
     Get current user's reaction for a specific target
     """
     try:
-        # Get user_id safely
+        # Get user_id safely and convert to string
         user_id = current_user.get('_id') or current_user.get('id')
         if not user_id:
             raise HTTPException(status_code=401, detail="User ID not found")
+        
+        # Ensure user_id is a string
+        user_id = str(user_id)
             
         reaction = await reaction_model.get_user_reaction(
             user_id=user_id,
