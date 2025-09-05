@@ -1,4 +1,5 @@
 import os
+import os
 import logging
 import aiosmtplib
 from email.mime.multipart import MIMEMultipart
@@ -19,7 +20,6 @@ class EmailService:
         self.password = settings.get("EMAIL_PASSWORD", "")
         
         # Use absolute path for templates directory
-        import os
         current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.templates_dir = os.path.join(current_dir, "templates")
         

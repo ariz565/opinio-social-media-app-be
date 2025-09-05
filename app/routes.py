@@ -1,9 +1,13 @@
-from fastapi import APIRouter, HTTPException, status, Request, Query, Depends
+from fastapi import APIRouter, HTTPException, status, Request, Query, Depends, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List, Optional
 
 # Import authentication functions
 from app.core.auth import get_current_user
+
+# Import database and models for debugging
+from app.database.mongo_connection import get_database
+from app.models import user as user_model
 
 # Import business logic functions from v1
 from app.api.v1.auth_functions import (
@@ -51,6 +55,15 @@ from app.api.v1.shares import (
     delete_share, get_share_analytics, get_trending_shares, get_user_share_count,
     check_user_shared_post, get_repost_by_id
 )
+# Import profile functions
+from app.api.v1.profile import (
+    get_user_profile, update_basic_info, update_experience, add_single_experience,
+    delete_experience, update_education, add_single_education, delete_education,
+    update_skills, update_languages, update_certifications, add_single_certification,
+    delete_certification, update_interests, update_social_links,
+    upload_profile_photo, upload_cover_photo
+)
+from app.schemas.profile import *
 from app.schemas.user import (
     UserRegistration, UserLogin, EmailVerification, RefreshToken,
     PasswordResetRequest, PasswordResetVerify, EmailRequest
@@ -1677,6 +1690,141 @@ async def get_single_repost(repost_id: str):
 # =============================================================================
 # END OF IMPLEMENTED ROUTES
 # =============================================================================
+
+# ================= PROFILE ROUTES =================
+
+@router.get("/profile/{username}", response_model=FullProfile, tags=["Profile"])
+async def get_profile(username: str, current_user: dict = Depends(get_current_user)):
+    """Get user profile by username"""
+    return await get_user_profile(username, current_user)
+
+@router.put("/profile/basic-info", tags=["Profile"])
+async def update_profile_basic_info(
+    data: BasicInfoUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update basic profile information"""
+    return await update_basic_info(data, current_user)
+
+@router.put("/profile/experience", tags=["Profile"])
+async def update_profile_experience(
+    data: ExperienceUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update work experience"""
+    return await update_experience(data, current_user)
+
+@router.post("/profile/experience", tags=["Profile"])
+async def add_profile_experience(
+    data: WorkExperience,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add single work experience"""
+    return await add_single_experience(data, current_user)
+
+@router.delete("/profile/experience/{item_id}", tags=["Profile"])
+async def delete_profile_experience(
+    item_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete work experience"""
+    return await delete_experience(item_id, current_user)
+
+@router.put("/profile/education", tags=["Profile"])
+async def update_profile_education(
+    data: EducationUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update education"""
+    return await update_education(data, current_user)
+
+@router.post("/profile/education", tags=["Profile"])
+async def add_profile_education(
+    data: Education,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add single education"""
+    return await add_single_education(data, current_user)
+
+@router.delete("/profile/education/{item_id}", tags=["Profile"])
+async def delete_profile_education(
+    item_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete education"""
+    return await delete_education(item_id, current_user)
+
+@router.put("/profile/skills", tags=["Profile"])
+async def update_profile_skills(
+    data: SkillsUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update skills"""
+    return await update_skills(data, current_user)
+
+@router.put("/profile/languages", tags=["Profile"])
+async def update_profile_languages(
+    data: LanguagesUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update languages"""
+    return await update_languages(data, current_user)
+
+@router.put("/profile/certifications", tags=["Profile"])
+async def update_profile_certifications(
+    data: CertificationsUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update certifications"""
+    return await update_certifications(data, current_user)
+
+@router.post("/profile/certifications", tags=["Profile"])
+async def add_profile_certification(
+    data: Certification,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add single certification"""
+    return await add_single_certification(data, current_user)
+
+@router.delete("/profile/certifications/{item_id}", tags=["Profile"])
+async def delete_profile_certification(
+    item_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete certification"""
+    return await delete_certification(item_id, current_user)
+
+@router.put("/profile/interests", tags=["Profile"])
+async def update_profile_interests(
+    data: InterestsUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update interests"""
+    return await update_interests(data, current_user)
+
+@router.put("/profile/social-links", tags=["Profile"])
+async def update_profile_social_links(
+    data: SocialLinksUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update social links"""
+    return await update_social_links(data, current_user)
+
+@router.post("/profile/upload/profile-photo", tags=["Profile"])
+async def upload_profile_picture(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Upload profile picture"""
+    return await upload_profile_photo(file, current_user)
+
+@router.post("/profile/upload/cover-photo", tags=["Profile"])
+async def upload_cover_picture(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Upload cover photo"""
+    return await upload_cover_photo(file, current_user)
 
 # =============================================================================
 # ALL OTHER ROUTES COMMENTED OUT - TO BE IMPLEMENTED LATER
