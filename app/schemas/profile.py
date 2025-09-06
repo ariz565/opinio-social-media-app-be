@@ -5,7 +5,9 @@ import re
 
 class BasicInfoUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    headline: Optional[str] = Field(None, max_length=100)
     bio: Optional[str] = Field(None, max_length=500)
+    about: Optional[str] = Field(None, max_length=1000)
     location: Optional[str] = Field(None, max_length=100)
     website: Optional[str] = None
     phone: Optional[str] = None

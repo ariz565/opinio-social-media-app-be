@@ -224,7 +224,7 @@ async def update_profile_section(db, user_id, section, data):
         }
         
         if section == "basic_info":
-            allowed_fields = ["full_name", "bio", "location", "website", "phone"]
+            allowed_fields = ["full_name", "headline", "bio", "about", "location", "website", "phone"]
             for field in allowed_fields:
                 if field in data:
                     update_data[field] = data[field]

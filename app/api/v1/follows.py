@@ -505,7 +505,36 @@ async def get_friend_suggestions(
             limit=limit
         )
         
+        # If no suggestions found, return some users from database for testing
+        if not suggestions:
+            print(f"[DEBUG] No friend suggestions found, getting users from database")
+            from app.database.mongo_connection import get_database
+            db = await get_database()
+            users_collection = db.users
+            
+            # Get users excluding current user
+            users_cursor = users_collection.find({
+                "_id": {"$ne": current_user["_id"]},
+                "status": "active"
+            }).limit(limit)
+            users = await users_cursor.to_list(length=limit)
+            
+            print(f"[DEBUG] Found {len(users)} users for friend suggestions")
+            
+            # Convert users to friend suggestions format
+            suggestions = []
+            for user in users:
+                suggestions.append({
+                    "_id": str(user["_id"]),
+                    "username": user.get("username", ""),
+                    "full_name": user.get("full_name", ""),
+                    "profile_picture": user.get("profile_picture"),
+                    "is_verified": user.get("is_verified", False),
+                    "mutual_count": 0
+                })
+        
         return [FriendSuggestion(**suggestion) for suggestion in suggestions]
     
     except Exception as e:
+        print(f"[DEBUG] Exception in get_friend_suggestions: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get friend suggestions: {str(e)}")
